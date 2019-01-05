@@ -1,0 +1,12 @@
+.DS_Store
+.erlang.mk/
+c_src/env.mk
+*.sw[op]
+*.so
+*.beam
+*.o
+*.d
+*.zip
+ebin/
+data/
+priv/
