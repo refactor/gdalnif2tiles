@@ -2,6 +2,7 @@
 -export([open_file/1]).
 -export([info/1]).
 -export([band_info/2]).
+-export([get_pixel/3]).
 
 -on_load(init/0).
 
@@ -25,4 +26,8 @@ info(_Dataset) ->
 
 -spec band_info(reference(), pos_integer()) -> map().
 band_info(_Dataset, _BandNo) ->
+    erlang:nif_error(notfound).
+
+-spec get_pixel(reference(), non_neg_integer(), non_neg_integer()) -> list(float()).
+get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).

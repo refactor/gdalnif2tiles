@@ -173,6 +173,36 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     return res;
 }
 
+static ERL_NIF_TERM get_pixel(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    MyGDALDataset *pGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], imageBinResType, (void**)&pGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    int nXOff;
+    if (!enif_get_int(env, argv[1], &nXOff)) {
+        return enif_make_badarg(env);
+    }
+    int nYOff;
+    if (!enif_get_int(env, argv[2], &nYOff)) {
+        return enif_make_badarg(env);
+    }
+    GDALDatasetH hDataset = pGDALDataset->handle;
+    int bandNo = 1;
+    GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
+
+    float pixelValue;
+    CPLErr res = GDALRasterIO(hBand, GF_Read,
+            nXOff, nYOff, 1, 1,
+            &pixelValue, 1, 1,
+            GDT_Float32,
+            0,0);
+    if (res != CE_None) {
+        return enif_raise_exception(env,
+                enif_make_string(env, "raster io error", ERL_NIF_LATIN1));
+    }
+    return enif_make_double(env, pixelValue);
+}
+
 static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     GDALAllRegister();
 
@@ -185,7 +215,8 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 static ErlNifFunc nif_funcs[] = {
     {"open_file", 1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"info", 1, info, 0},
-    {"band_info", 2, band_info, 0}
+    {"band_info", 2, band_info, 0},
+    {"get_pixel", 3, get_pixel, 0}
 };
 
 ERL_NIF_INIT(gdalnif2tiles, nif_funcs, nifload, NULL,NULL,NULL)
