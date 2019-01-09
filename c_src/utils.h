@@ -19,5 +19,7 @@ inline const char* rasterDataType(GDALDataType datatype) {
             return "int32";
         case GDT_Unknown:
             return "unknow";
+        default:
+            return "complex ignored";
     }
 }
