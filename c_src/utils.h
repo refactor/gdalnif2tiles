@@ -1,7 +1,7 @@
 #pragma once
 #include <gdal.h>
 
-inline const char* rasterDataType(GDALDataType datatype) {
+static inline const char* rasterDataType(GDALDataType datatype) {
     switch (datatype) {
         case GDT_Float32:
             return "float32";
