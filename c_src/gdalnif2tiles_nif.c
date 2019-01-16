@@ -55,6 +55,7 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         return enif_raise_exception(env,
             enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
     }
+    LOGA("opening...");
     GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
     LOGA("hDataset -> %p", hDataset);
     if (hDataset == NULL) {
@@ -63,9 +64,9 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     }
     MyGDALDataset *pGDALDataset = enif_alloc_resource(imageBinResType, sizeof(*pGDALDataset));
     pGDALDataset->handle = hDataset;
-    pGDALDataset->rasterWidth = GDALGetRasterXSize(hDataset);
+    pGDALDataset->rasterWidth  = GDALGetRasterXSize(hDataset);
     pGDALDataset->rasterHeight = GDALGetRasterYSize(hDataset);
-    pGDALDataset->rasterCount = GDALGetRasterCount(hDataset);
+    pGDALDataset->rasterCount  = GDALGetRasterCount(hDataset);
     double adfGeoTransform[6];
     if (GDALGetGeoTransform(hDataset, adfGeoTransform) == CE_None) {
         pGDALDataset->originX = adfGeoTransform[0];
@@ -171,7 +172,7 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
             enif_make_atom(env, rasterDataType(GDALGetRasterDataType(hBand))),
             &res);
     if (NULL == GDALGetRasterColorTable(hBand)) {
-        WARN("need to convert this file to RGB/RGBA by gdal2tiles");
+        WARNA("need to convert this file to RGB/RGBA by gdal2tiles");
     }
     int bGotMin, bGotMax;
     double adfMinMax[2] = {
@@ -179,7 +180,7 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         GDALGetRasterMaximum(hBand, &bGotMax),
     };
     if (!(bGotMin && bGotMax)) {
-        WARN("lengthy compute....");
+        WARNA("lengthy compute....");
         GDALComputeRasterMinMax(hBand, TRUE, adfMinMax);
     }
     enif_make_map_put(env, res,
