@@ -15,7 +15,7 @@ void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
         WARNA("errno: %d, %s", errNo, msg);
 }
 
-static ErlNifResourceType* imageBinResType;
+static ErlNifResourceType* gdalDatasetResType;
 
 typedef struct MyGDALDataset {
     GDALDatasetH handle;
@@ -23,10 +23,8 @@ typedef struct MyGDALDataset {
     int srid;
     int rasterCount;
     int rasterWidth, rasterHeight;
-    double originX;
-    double originY;
-    double pixelWidth;
-    double pixelHeight;
+    double originX, originY;
+    double pixelWidth, pixelHeight;
     double minBoundX, maxBoundX;
     double minBoundY, maxBoundY;
     double minBoundZ, maxBoundZ;
@@ -62,7 +60,7 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         return enif_raise_exception(env,
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
-    MyGDALDataset *pGDALDataset = enif_alloc_resource(imageBinResType, sizeof(*pGDALDataset));
+    MyGDALDataset *pGDALDataset = enif_alloc_resource(gdalDatasetResType, sizeof(*pGDALDataset));
     pGDALDataset->handle = hDataset;
     pGDALDataset->rasterWidth  = GDALGetRasterXSize(hDataset);
     pGDALDataset->rasterHeight = GDALGetRasterYSize(hDataset);
@@ -93,7 +91,7 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
 
 static ERL_NIF_TERM info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], imageBinResType, (void**)&pGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
     }
     GDALDatasetH hDataset = pGDALDataset->handle;
@@ -141,7 +139,7 @@ static ERL_NIF_TERM info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
 static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], imageBinResType, (void**)&pGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
     }
     int bandNo = 0;
@@ -195,7 +193,7 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
 
 static ERL_NIF_TERM get_pixel(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], imageBinResType, (void**)&pGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
     }
     int nXOff;
@@ -227,7 +225,7 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     GDALAllRegister();
     CPLSetErrorHandler(MyGDALErrorHandler);
 
-    imageBinResType = enif_open_resource_type(env, NULL, "imagerl", dataset_dtor,
+    gdalDatasetResType = enif_open_resource_type(env, NULL, "gdalnif2tiles", dataset_dtor,
             ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
     ATOM_OK = enif_make_atom(env, "ok");
     return 0;
