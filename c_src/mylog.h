@@ -5,6 +5,9 @@
 #define LOGA(fmt, ...)
 #define WARNA(fmt, ...)
 
+#define ERR_LOG(fmt, ...)
+#define WARN_LOG(fmt, ...)
+
 #else
 
 #define FG_BLACK        30
@@ -37,6 +40,7 @@
 #define MAGENTA(str)    "\033[35m" str "\033[0m"
 #define CYAN(str)       "\033[36m" str "\033[0m"
 #define WHITE(str)      "\033[37m" str "\033[0m"
+#define GREY(str)       "\033[30;1m" str "\033[0m"
 
 #ifdef __APPLE__
 #include <pthread.h>
@@ -58,8 +62,10 @@
         })
 #endif
 
-#define LOGA(fmt, ...) enif_fprintf(stdout, B_WHITE("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
-#define WARNA(fmt, ...) enif_fprintf(stdout, B_RED("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
+#define LOGA(fmt, ...) enif_fprintf(stdout, GREY("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
+#define WARNA(fmt, ...) enif_fprintf(stdout, B_MAGENTA("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
 
+#define WARN_LOG(fmt, ...) enif_fprintf(stdout, B_YELLOW("[@(tid:%llx)]") " " YELLOW(fmt) "\r\n", thrd_id(), ##__VA_ARGS__)
+#define ERR_LOG(fmt, ...) enif_fprintf(stdout, B_RED("[@(tid:%llx)]") " " RED(fmt) "\r\n", thrd_id(), ##__VA_ARGS__)
 #endif
 

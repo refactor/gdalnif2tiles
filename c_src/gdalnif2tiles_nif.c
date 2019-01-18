@@ -9,10 +9,11 @@
 #include "utils.h"
 
 void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
-    if (eErrClass < CE_Warning)
-        LOGA("errno: %d, %s", errNo, msg);
-    else 
-        WARNA("errno: %d, %s", errNo, msg);
+    if (eErrClass <= CE_Warning) {
+        WARN_LOG("errno: %d, %s", errNo, msg);
+    } else {
+        ERR_LOG("errno: %d, %s", errNo, msg);
+    }
 }
 
 static ErlNifResourceType* gdalDatasetResType;
@@ -169,8 +170,11 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     enif_make_map_put(env, res, enif_make_atom(env, "pixel_datatype"),
             enif_make_atom(env, rasterDataType(GDALGetRasterDataType(hBand))),
             &res);
-    if (NULL == GDALGetRasterColorTable(hBand)) {
-        WARNA("need to convert this file to RGB/RGBA by gdal2tiles");
+    if (GDALGetRasterColorTable(hBand) != NULL) {
+        WARNA("Please convert this file to RGB/RGBA by gdal_translate");
+        return enif_raise_exception(env,
+                enif_make_string(env, "cannot do color table", ERL_NIF_LATIN1));
+
     }
     int bGotMin, bGotMax;
     double adfMinMax[2] = {
