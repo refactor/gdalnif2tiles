@@ -16,6 +16,20 @@ void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
     }
 }
 
+#define ENIF(name) static ERL_NIF_TERM name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+
+static ERL_NIF_TERM ATOM_OK;
+
+static ErlNifResourceType* profileResType;
+
+void profile_dtor(ErlNifEnv* env, void* obj) {
+    WorldProfile *profile = (WorldProfile*)obj;
+    if (profile->outputSRS != NULL) {
+        OSRDestroySpatialReference(profile->outputSRS);
+        profile->outputSRS = NULL;
+    }
+}
+
 static ErlNifResourceType* gdalDatasetResType;
 
 typedef struct MyGDALDataset {
@@ -31,8 +45,6 @@ typedef struct MyGDALDataset {
     double minBoundZ, maxBoundZ;
 } MyGDALDataset;
 
-static ERL_NIF_TERM ATOM_OK;
-
 void dataset_dtor(ErlNifEnv* env, void* obj) {
     MyGDALDataset *pGDALDataset = (MyGDALDataset*)obj;
     LOGA("pGDALDataset -> %p, handle -> %p", pGDALDataset, pGDALDataset->handle);
@@ -46,6 +58,31 @@ void dataset_dtor(ErlNifEnv* env, void* obj) {
             pGDALDataset->srs = NULL;
         }
     }
+}
+
+static ERL_NIF_TERM create_profile(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    LOGA("argv: %T", argv[0]);
+    char buf[32];
+    if (!enif_get_atom(env, argv[0], buf, sizeof(buf), ERL_NIF_LATIN1)) {
+        return enif_make_badarg(env);
+    }
+
+    world_profile_type profileType = PROFILE_TYPE_COUNT;
+    for (int i=0; i<PROFILE_TYPE_COUNT; ++i) {
+        if (strncasecmp(WORLD_PROFILE_TYPES[i], buf, sizeof(buf)) == 0) {
+            profileType = i;
+            break;
+        }
+    }
+    if (profileType == PROFILE_TYPE_COUNT) {
+        return enif_make_badarg(env);
+    }
+
+    WorldProfile *profile = enif_alloc_resource(profileResType, sizeof(*profile));
+    createProfile(profileType, profile);
+    ERL_NIF_TERM res = enif_make_resource(env, profile);
+    enif_release_resource(profile);
+    return res;
 }
 
 static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
@@ -229,17 +266,20 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     GDALAllRegister();
     CPLSetErrorHandler(MyGDALErrorHandler);
 
-    gdalDatasetResType = enif_open_resource_type(env, NULL, "gdalnif2tiles", dataset_dtor,
+    profileResType = enif_open_resource_type(env, NULL, "worldProfile", profile_dtor,
+            ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
+    gdalDatasetResType = enif_open_resource_type(env, NULL, "gdalDataset", dataset_dtor,
             ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
     ATOM_OK = enif_make_atom(env, "ok");
     return 0;
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"open_file", 1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"info", 1, info, 0},
-    {"band_info", 2, band_info, 0},
-    {"get_pixel", 3, get_pixel, 0}
+    {"create_profile", 1, create_profile, 0},
+    {"open_file",      1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"info",           1, info, 0},
+    {"band_info",      2, band_info, 0},
+    {"get_pixel",      3, get_pixel, 0}
 };
 
 ERL_NIF_INIT(gdalnif2tiles, nif_funcs, nifload, NULL,NULL,NULL)
