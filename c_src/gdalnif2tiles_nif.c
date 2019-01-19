@@ -60,7 +60,7 @@ void dataset_dtor(ErlNifEnv* env, void* obj) {
     }
 }
 
-static ERL_NIF_TERM create_profile(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+ENIF(create_profile) {
     LOGA("argv: %T", argv[0]);
     char buf[32];
     if (!enif_get_atom(env, argv[0], buf, sizeof(buf), ERL_NIF_LATIN1)) {
@@ -85,7 +85,7 @@ static ERL_NIF_TERM create_profile(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
     return res;
 }
 
-static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+ENIF(open_file) {
     char filename[128] = {};
     if (!enif_get_string(env, argv[0], filename, sizeof(filename), ERL_NIF_LATIN1)) {
         return enif_raise_exception(env,
@@ -127,7 +127,7 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     return res;
 }
 
-static ERL_NIF_TERM info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+ENIF(info) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
@@ -175,7 +175,7 @@ static ERL_NIF_TERM info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     return res;
 }
 
-static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+ENIF(band_info) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
@@ -232,7 +232,7 @@ static ERL_NIF_TERM band_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     return res;
 }
 
-static ERL_NIF_TERM get_pixel(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+ENIF(get_pixel) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
