@@ -68,12 +68,17 @@ static ERL_NIF_TERM open_file(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     pGDALDataset->rasterCount  = GDALGetRasterCount(hDataset);
     double adfGeoTransform[6];
     if (GDALGetGeoTransform(hDataset, adfGeoTransform) == CE_None) {
-        pGDALDataset->originX = adfGeoTransform[0];
-        pGDALDataset->originY = adfGeoTransform[3];
-        pGDALDataset->pixelWidth = adfGeoTransform[1];
-        pGDALDataset->pixelHeight = adfGeoTransform[5];
-        LOGA("coeff[2]: %f, coeff[4]: %f", adfGeoTransform[2],adfGeoTransform[4]);
+        if (adfGeoTransform[2] != 0.0 || adfGeoTransform[4] != 0.0) {
+            return enif_raise_exception(env, 
+                    enif_make_tuple2(env, enif_make_atom(env, "not_support"),
+                        enif_make_string(env, "Georeference of the raster contains rotation or skew", ERL_NIF_LATIN1)));
+        }
     }
+    pGDALDataset->originX = adfGeoTransform[0];
+    pGDALDataset->originY = adfGeoTransform[3];
+    pGDALDataset->pixelWidth = adfGeoTransform[1];
+    pGDALDataset->pixelHeight = adfGeoTransform[5];
+    LOGA("coeff[2]: %f, coeff[4]: %f", adfGeoTransform[2],adfGeoTransform[4]);
     
     const char* proj = GDALGetProjectionRef(hDataset);
     OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
