@@ -1,5 +1,5 @@
 #pragma once
-
+#include <erl_nif.h>
 #include <gdal.h>
 #include <ogr_srs_api.h>
 
@@ -27,6 +27,33 @@ typedef struct WorldProfile {
     double originShift;
     OGRSpatialReferenceH outputSRS;
 } WorldProfile;
+
+typedef struct nodata_list {
+    uint32_t len;
+    double nodata[];
+} nodata_list;
+
+typedef struct MyGDALDataset {
+    GDALDatasetH handle;
+    OGRSpatialReferenceH inputSRS;
+    int srid;
+    int rasterCount;
+    int rasterWidth, rasterHeight;
+    double originX, originY;
+    double pixelWidth, pixelHeight;
+    double minBoundX, maxBoundX;
+    double minBoundY, maxBoundY;
+    double minBoundZ, maxBoundZ;
+    const WorldProfile *profile;
+    nodata_list *in_nodata;
+} MyGDALDataset;
+
+void attachProfile(MyGDALDataset *pGDALDataset, const WorldProfile *profile) {
+    if (! OSRIsSame(pGDALDataset->inputSRS, profile->outputSRS)) {
+    }
+    pGDALDataset->profile = profile;
+    enif_keep_resource((void*)profile);
+}
 
 void createProfile(world_profile_type profileType, WorldProfile *profile) {
     int tileSize = 256;

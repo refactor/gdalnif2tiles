@@ -32,30 +32,25 @@ void profile_dtor(ErlNifEnv* env, void* obj) {
 
 static ErlNifResourceType* gdalDatasetResType;
 
-typedef struct MyGDALDataset {
-    GDALDatasetH handle;
-    OGRSpatialReferenceH srs;
-    int srid;
-    int rasterCount;
-    int rasterWidth, rasterHeight;
-    double originX, originY;
-    double pixelWidth, pixelHeight;
-    double minBoundX, maxBoundX;
-    double minBoundY, maxBoundY;
-    double minBoundZ, maxBoundZ;
-} MyGDALDataset;
-
 void dataset_dtor(ErlNifEnv* env, void* obj) {
     MyGDALDataset *pGDALDataset = (MyGDALDataset*)obj;
-    LOGA("pGDALDataset -> %p, handle -> %p", pGDALDataset, pGDALDataset->handle);
+    LOGA("pGDALDataset -> %p, handle -> %p, profile -> %p", pGDALDataset, pGDALDataset->handle, pGDALDataset->profile);
     if (pGDALDataset) {
         if (pGDALDataset->handle != NULL) {
             GDALClose(pGDALDataset->handle);
             pGDALDataset->handle = NULL;
         }
-        if (pGDALDataset->srs != NULL) {
-            OSRDestroySpatialReference(pGDALDataset->srs);
-            pGDALDataset->srs = NULL;
+        if (pGDALDataset->inputSRS != NULL) {
+            OSRDestroySpatialReference(pGDALDataset->inputSRS);
+            pGDALDataset->inputSRS = NULL;
+        }
+        if (pGDALDataset->in_nodata != NULL) {
+            enif_free(pGDALDataset->in_nodata);
+            pGDALDataset->in_nodata = NULL;
+        }
+        if (pGDALDataset->profile != NULL) {
+            enif_release_resource((void*)pGDALDataset->profile);
+            pGDALDataset->profile = NULL;
         }
     }
 }
@@ -99,6 +94,7 @@ ENIF(open_file) {
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
     MyGDALDataset *pGDALDataset = enif_alloc_resource(gdalDatasetResType, sizeof(*pGDALDataset));
+    *pGDALDataset = (MyGDALDataset){0};
     pGDALDataset->handle = hDataset;
     pGDALDataset->rasterWidth  = GDALGetRasterXSize(hDataset);
     pGDALDataset->rasterHeight = GDALGetRasterYSize(hDataset);
@@ -117,14 +113,26 @@ ENIF(open_file) {
     pGDALDataset->pixelHeight = adfGeoTransform[5];
     LOGA("coeff[2]: %f, coeff[4]: %f", adfGeoTransform[2],adfGeoTransform[4]);
     
-    const char* proj = GDALGetProjectionRef(hDataset);
+    const char* proj = GDALGetProjectionRef(pGDALDataset->handle);
     OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
     if (proj == NULL || OGRERR_NONE != OSRSetFromUserInput(fileSRS, proj)) {
         OSRDestroySpatialReference(fileSRS);
         return enif_raise_exception(env,
                 enif_make_string(env, "NO spatial reference found", ERL_NIF_LATIN1));
     }
-    pGDALDataset->srs = fileSRS;
+    pGDALDataset->inputSRS = fileSRS;
+
+    nodata_list *nodata = (nodata_list*) enif_alloc(
+            sizeof(*nodata) + pGDALDataset->rasterCount*sizeof(double));
+    nodata->len = pGDALDataset->rasterCount;
+    for (int i = 1; i <= pGDALDataset->rasterCount; ++i) {
+        int successFlag = 0;
+        GDALRasterBandH hBand = GDALGetRasterBand(pGDALDataset->handle, i);
+        nodata->nodata[i] = GDALGetRasterNoDataValue(hBand, &successFlag);
+        LOGA("band.%d nodata: %f", i, nodata->nodata[i]);
+        if (!successFlag) WARNA("band.%d: no-data found...", i);
+    }
+    pGDALDataset->in_nodata = nodata;
 
     LOGA("open success: res -> %p, handle -> %p", pGDALDataset, hDataset);
     ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
