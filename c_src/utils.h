@@ -2,6 +2,8 @@
 #include <erl_nif.h>
 #include <gdal.h>
 #include <ogr_srs_api.h>
+#include <gdalwarper.h>
+#include <cpl_conv.h>
 
 #include <math.h>
 #include <inttypes.h>
@@ -44,14 +46,51 @@ typedef struct MyGDALDataset {
     double minBoundX, maxBoundX;
     double minBoundY, maxBoundY;
     double minBoundZ, maxBoundZ;
+
+    GDALDatasetH warped_input_dataset;
+    VSILFILE* memFile;
     const WorldProfile *profile;
     nodata_list *in_nodata;
 } MyGDALDataset;
 
-void attachProfile(MyGDALDataset *pGDALDataset, const WorldProfile *profile) {
-    if (! OSRIsSame(pGDALDataset->inputSRS, profile->outputSRS)) {
+const char* cat_novalues(nodata_list* nodata) {
+    size_t buf_sz = nodata->len * 16;
+    char *buf = calloc(nodata->len, 16);
+    char *ptr = buf;
+    int n = snprintf(ptr, buf_sz, "%f", nodata->nodata[0]);
+    for (int i = 1; i < nodata->len; ++i) {
+        buf_sz -= n;
+        ptr += n;
+        n = snprintf(ptr, buf_sz, " %f", nodata->nodata[i]);
     }
+    return buf;
+}
+
+static inline void reproject_dataset(MyGDALDataset* pGDALDataset) {
+    GDALDatasetH hSrcDS = pGDALDataset->handle;
+    GDALDatasetH hDstDS = NULL;
+    OGRSpatialReferenceH dstSRS = pGDALDataset->profile->outputSRS;
+    if (OSRIsSame(pGDALDataset->inputSRS, dstSRS)) {
+        hDstDS = pGDALDataset->handle;
+    }
+    else {
+        char *pszDstWKT = NULL;
+        OSRExportToWkt(dstSRS, &pszDstWKT);
+
+        hDstDS = GDALAutoCreateWarpedVRT(hSrcDS,
+                                        GDALGetProjectionRef(hSrcDS), pszDstWKT,
+                                        GRA_NearestNeighbour,
+                                        0.0,
+                                        NULL);
+        CPLFree(pszDstWKT);
+    }
+    pGDALDataset->warped_input_dataset = hDstDS;
+}
+
+void reprojectWithProfile(MyGDALDataset *pGDALDataset, const WorldProfile *profile) {
     pGDALDataset->profile = profile;
+    reproject_dataset(pGDALDataset);
+
     enif_keep_resource((void*)profile);
 }
 
@@ -118,3 +157,4 @@ static inline const char* rasterDataType(GDALDataType datatype) {
             return "complex ignored";
     }
 }
+

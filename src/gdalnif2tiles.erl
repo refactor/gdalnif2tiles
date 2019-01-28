@@ -1,9 +1,14 @@
 -module(gdalnif2tiles).
 -export([create_profile/1]).
 -export([open_file/1]).
+-export([has_nodata/1]).
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
+
+-export([assign_profile/2]).
+-export([reproj2profile/2]).
+-export([get_xmlvrt/1]).
 -export([update_no_data_values/1]).
 
 -on_load(init/0).
@@ -26,6 +31,10 @@ create_profile(_Profile) ->
 open_file(_File) ->
     erlang:nif_error(notfound).
 
+-spec has_nodata(reference()) -> boolean().
+has_nodata(_Dataset) ->
+    erlang:nif_error(notfound).
+
 -spec info(reference()) -> map().
 info(_Dataset) ->
     erlang:nif_error(notfound).
@@ -38,12 +47,36 @@ band_info(_Dataset, _BandNo) ->
 get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).
 
-update_no_data_values(File) ->
-    {XmlDoc,_} = xmerl_scan:file(File),
+-spec assign_profile(reference(), reference()) -> reference().
+assign_profile(Dataset, Profile) ->
+    reproj2profile(Dataset, Profile),
+    Nodata = has_nodata(Dataset),
+    if Nodata ->
+        update_no_data_values(Dataset)
+    end,
+    Dataset.
+
+-spec reproj2profile(reference(), reference()) -> reference().
+reproj2profile(_Dataset, _Profile) ->
+    erlang:nif_error(notfound).
+
+-spec get_xmlvrt(reference()) -> string().
+get_xmlvrt(_Dataset) ->
+    erlang:nif_error(notfound).
+
+-spec update_no_data_values(reference()) -> reference().
+update_no_data_values(Dataset) ->
+    Str = get_xmlvrt(Dataset),
+    {XmlDoc,_} = xmerl_scan:string(Str),
     TL = xmerl_lib:simplify_element(XmlDoc),
     NewTL = add_gdal_warp_options_to_string(TL),
     % rm header: "<?xml version=\"1.0\"?>"
-    lists:flatten(tl(xmerl:export_simple([NewTL], xmerl_xml))).
+    CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
+    correct_dataset(Dataset, CorrectedStr).
+
+-spec correct_dataset(reference(), binary()) -> reference().
+correct_dataset(_Dataset, _CorrectedStr) ->
+    erlang:nif_error(notfound).
 
 add_gdal_warp_options_to_string({Tag, Attributes, Content}) ->
     NewContent = add_gdal_warp_options(Content),

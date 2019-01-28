@@ -3,6 +3,7 @@
 #include <erl_nif.h>
 #include <gdal.h>
 #include <cpl_conv.h>
+#include <cpl_vsi.h>
 
 #include <ogr_srs_api.h>
 
@@ -10,9 +11,9 @@
 
 void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
     if (eErrClass <= CE_Warning) {
-        WARN_LOG("errno: %d, %s", errNo, msg);
+        WARN_LOG("GDAL.errno: %d, %s", errNo, msg);
     } else {
-        ERR_LOG("errno: %d, %s", errNo, msg);
+        ERR_LOG("GDAL.errno: %d, %s", errNo, msg);
     }
 }
 
@@ -36,6 +37,18 @@ void dataset_dtor(ErlNifEnv* env, void* obj) {
     MyGDALDataset *pGDALDataset = (MyGDALDataset*)obj;
     LOGA("pGDALDataset -> %p, handle -> %p, profile -> %p", pGDALDataset, pGDALDataset->handle, pGDALDataset->profile);
     if (pGDALDataset) {
+        if (pGDALDataset->warped_input_dataset != NULL) {
+            if (pGDALDataset->warped_input_dataset != pGDALDataset->handle) {
+                LOGA("close warped_input_dataset: %p", pGDALDataset->warped_input_dataset);
+                GDALClose(pGDALDataset->warped_input_dataset);
+            }
+            pGDALDataset->warped_input_dataset = NULL;
+        }
+        if (pGDALDataset->memFile != NULL) {
+            LOGA("close memFile: %p", pGDALDataset->memFile);
+            VSIFCloseL(pGDALDataset->memFile);
+            pGDALDataset->memFile = NULL;
+        }
         if (pGDALDataset->handle != NULL) {
             GDALClose(pGDALDataset->handle);
             pGDALDataset->handle = NULL;
@@ -138,6 +151,17 @@ ENIF(open_file) {
     ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
     enif_release_resource(pGDALDataset);
     return res;
+}
+
+ENIF(has_nodata) {
+    MyGDALDataset *pGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    if (pGDALDataset->in_nodata != NULL) {
+        return enif_make_atom(env, "true");
+    } 
+    return enif_make_atom(env, "false");
 }
 
 ENIF(info) {
@@ -245,6 +269,62 @@ ENIF(band_info) {
     return res;
 }
 
+ENIF(reproj2profile) {
+    MyGDALDataset *pGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    WorldProfile *profile = NULL;
+    if (!enif_get_resource(env, argv[1], profileResType, (void**)&profile)) {
+        return enif_make_badarg(env);
+    }
+    reprojectWithProfile(pGDALDataset, profile);
+
+    return argv[0];
+}
+
+ENIF(correct_dataset) {
+    MyGDALDataset *pGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    ErlNifBinary bin;
+    if (!enif_inspect_binary(env, argv[1], &bin)) {
+        return enif_make_badarg(env);
+    }
+    char *filename = "/vsimem/tiles.mem";
+    uint8_t *data = malloc(bin.size);
+    memcpy(data, bin.data, bin.size);
+    VSILFILE *memFile = VSIFileFromMemBuffer(filename, data, bin.size, TRUE);
+    const char* nodatavalues = cat_novalues(pGDALDataset->in_nodata);
+    LOGA("nodata: %s", nodatavalues);
+    GDALDatasetH correctedDataset = GDALOpen(filename, GA_ReadOnly);
+    LOGA("correctedDataset: %p", correctedDataset);
+    if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", nodatavalues, NULL)) {
+        free((void*)nodatavalues);
+        return enif_raise_exception(env, enif_make_string(env, "fail to set metadata", ERL_NIF_LATIN1));
+    }
+    free((void*)nodatavalues);
+    pGDALDataset->warped_input_dataset = correctedDataset;
+    pGDALDataset->memFile = memFile;
+    return argv[0];
+}
+
+ENIF(get_xmlvrt) {
+    MyGDALDataset *pGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    if (pGDALDataset->warped_input_dataset == NULL) {
+        return enif_raise_exception(env, enif_make_string(env, "no warped input dataset found", ERL_NIF_LATIN1));
+    }
+    char** md = GDALGetMetadata(pGDALDataset->warped_input_dataset, "xml:VRT");
+    if (md == NULL) {
+        return enif_raise_exception(env, enif_make_string(env, "no xml:VRT found", ERL_NIF_LATIN1));
+    }
+    return enif_make_string(env, md[0], ERL_NIF_LATIN1);
+}
+
 ENIF(get_pixel) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
@@ -290,6 +370,10 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 static ErlNifFunc nif_funcs[] = {
     {"create_profile", 1, create_profile, 0},
     {"open_file",      1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"has_nodata",     1, has_nodata, 0},
+    {"reproj2profile", 2, reproj2profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"correct_dataset",2, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
     {"get_pixel",      3, get_pixel, 0}
