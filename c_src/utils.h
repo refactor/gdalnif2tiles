@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #define MAXZOOMLEVEL 32
 
@@ -46,16 +47,21 @@ typedef struct MyGDALDataset {
     double minBoundX, maxBoundX;
     double minBoundY, maxBoundY;
     double minBoundZ, maxBoundZ;
+    const nodata_list *in_nodata;
 
+    // @depracated
+    const WorldProfile *profile;
+} MyGDALDataset;
+
+typedef struct WarpedDataset {
+    bool warped;
     GDALDatasetH warped_input_dataset;
     VSILFILE* memFile;
     const WorldProfile *profile;
-    nodata_list *in_nodata;
-} MyGDALDataset;
+    const MyGDALDataset* myGDALDataset;
+} WarpedDataset;
 
-const char* cat_novalues(nodata_list* nodata) {
-    size_t buf_sz = nodata->len * 16;
-    char *buf = calloc(nodata->len, 16);
+static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
     char *ptr = buf;
     int n = snprintf(ptr, buf_sz, "%f", nodata->nodata[0]);
     for (int i = 1; i < nodata->len; ++i) {
@@ -63,13 +69,11 @@ const char* cat_novalues(nodata_list* nodata) {
         ptr += n;
         n = snprintf(ptr, buf_sz, " %f", nodata->nodata[i]);
     }
-    return buf;
 }
 
-static inline void reproject_dataset(MyGDALDataset* pGDALDataset) {
+static inline GDALDatasetH reprojectDataset(const MyGDALDataset* pGDALDataset, OGRSpatialReferenceH dstSRS) {
     GDALDatasetH hSrcDS = pGDALDataset->handle;
     GDALDatasetH hDstDS = NULL;
-    OGRSpatialReferenceH dstSRS = pGDALDataset->profile->outputSRS;
     if (OSRIsSame(pGDALDataset->inputSRS, dstSRS)) {
         hDstDS = pGDALDataset->handle;
     }
@@ -84,14 +88,7 @@ static inline void reproject_dataset(MyGDALDataset* pGDALDataset) {
                                         NULL);
         CPLFree(pszDstWKT);
     }
-    pGDALDataset->warped_input_dataset = hDstDS;
-}
-
-void reprojectWithProfile(MyGDALDataset *pGDALDataset, const WorldProfile *profile) {
-    pGDALDataset->profile = profile;
-    reproject_dataset(pGDALDataset);
-
-    enif_keep_resource((void*)profile);
+    return hDstDS;
 }
 
 void createProfile(world_profile_type profileType, WorldProfile *profile) {

@@ -9,7 +9,7 @@
 -export([assign_profile/2]).
 -export([reproj2profile/2]).
 -export([get_xmlvrt/1]).
--export([update_no_data_values/1]).
+-export([update_no_data_values/2]).
 
 -on_load(init/0).
 
@@ -49,33 +49,37 @@ get_pixel(_Dataset, _X, _Y) ->
 
 -spec assign_profile(reference(), reference()) -> reference().
 assign_profile(Dataset, Profile) ->
-    reproj2profile(Dataset, Profile),
+    WDataset = reproj2profile(Dataset, Profile),
     Nodata = has_nodata(Dataset),
-    if Nodata ->
-        update_no_data_values(Dataset)
+    io:format("Nodata: ~p~n", [Nodata]),
+    case Nodata of
+        none ->
+            pass;
+        _ ->
+            update_no_data_values(WDataset, Nodata)
     end,
-    Dataset.
+    WDataset.
 
 -spec reproj2profile(reference(), reference()) -> reference().
 reproj2profile(_Dataset, _Profile) ->
     erlang:nif_error(notfound).
 
 -spec get_xmlvrt(reference()) -> string().
-get_xmlvrt(_Dataset) ->
+get_xmlvrt(_WDataset) ->
     erlang:nif_error(notfound).
 
--spec update_no_data_values(reference()) -> reference().
-update_no_data_values(Dataset) ->
-    Str = get_xmlvrt(Dataset),
+-spec update_no_data_values(reference(), binary()) -> reference().
+update_no_data_values(WDataset, Nodata) ->
+    Str = get_xmlvrt(WDataset),
     {XmlDoc,_} = xmerl_scan:string(Str),
     TL = xmerl_lib:simplify_element(XmlDoc),
     NewTL = add_gdal_warp_options_to_string(TL),
     % rm header: "<?xml version=\"1.0\"?>"
     CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
-    correct_dataset(Dataset, CorrectedStr).
+    correct_dataset(WDataset, CorrectedStr, Nodata).
 
--spec correct_dataset(reference(), binary()) -> reference().
-correct_dataset(_Dataset, _CorrectedStr) ->
+-spec correct_dataset(reference(), binary(), binary()) -> reference().
+correct_dataset(_Dataset, _CorrectedStr, _Nodata) ->
     erlang:nif_error(notfound).
 
 add_gdal_warp_options_to_string({Tag, Attributes, Content}) ->
