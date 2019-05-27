@@ -5,6 +5,7 @@
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
+-export([tile_bounds/4]).
 
 -export([assign_profile/2]).
 -export([reproj2profile/2]).
@@ -96,3 +97,6 @@ add_option([{'Option',_Attrs,_Content}|_Rest] = Content) ->
 add_option([Head | Rest]) ->
     [Head | add_option(Rest)].
 
+-spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
+tile_bounds(_Dataset, _tx, _ty, _tz) ->
+    erlang:nif_error(notfound).

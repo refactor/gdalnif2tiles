@@ -360,6 +360,32 @@ ENIF(get_xmlvrt) {
     return enif_make_string(env, md[0], ERL_NIF_LATIN1);
 }
 
+ENIF(tile_bounds) {
+    WorldProfile *profile = NULL;
+    if (!enif_get_resource(env, argv[0], profileResType, (void**)&profile)) {
+        return enif_make_badarg(env);
+    }
+    int tx;
+    if (!enif_get_int(env, argv[1], &tx)) {
+        return enif_make_badarg(env);
+    }
+    int ty;
+    if (!enif_get_int(env, argv[2], &ty)) {
+        return enif_make_badarg(env);
+    }
+    int tz;
+    if (!enif_get_int(env, argv[3], &tz)) {
+        return enif_make_badarg(env);
+    }
+    double bounds[4] = {0};
+    tileBounds(profile, tx, ty, tz, bounds);
+    ERL_NIF_TERM bs[4];
+    for (int i=0; i<4; ++i) {
+        bs[i] = enif_make_double(env, bounds[i]);
+    }
+    return enif_make_tuple_from_array(env, bs, 4);
+}
+
 ENIF(get_pixel) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
@@ -413,6 +439,7 @@ static ErlNifFunc nif_funcs[] = {
     {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
+    {"tile_bounds",    4, tile_bounds, 0},
     {"get_pixel",      3, get_pixel, 0}
 };
 

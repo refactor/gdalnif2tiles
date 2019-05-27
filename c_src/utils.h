@@ -132,6 +132,19 @@ static inline int zoomForPixelSize(const WorldProfile *profile, double pixelSize
     return MAXZOOMLEVEL - 1;
 }
 
+static inline double pixelToMeter(const WorldProfile * profile, const double resolution, double xy) {
+    return xy * resolution - profile->originShift;
+}
+
+void tileBounds(const WorldProfile * profile, const int tx, const int ty, const int zoom, double bounds[static 4]) {
+    double res = resolutionOf(profile->initialResolution, zoom);
+    LOGA("res: %f, originShift: %f", res, profile->originShift);
+    bounds[0] = pixelToMeter(profile, res, tx * profile->tileSize);
+    bounds[1] = pixelToMeter(profile, res, ty * profile->tileSize);
+    bounds[2] = pixelToMeter(profile, res, (tx + 1) * profile->tileSize);
+    bounds[3] = pixelToMeter(profile, res, (ty + 1) * profile->tileSize);
+}
+
 static inline const char* rasterDataType(GDALDataType datatype) {
     switch (datatype) {
         case GDT_Float32:
