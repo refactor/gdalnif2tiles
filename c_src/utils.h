@@ -9,6 +9,8 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
+#include "mylog.h"
+
 #define MAXZOOMLEVEL 32
 
 typedef enum world_profile_type {
@@ -138,7 +140,7 @@ static inline double pixelToMeter(const WorldProfile * profile, const double res
 
 void tileBounds(const WorldProfile * profile, const int tx, const int ty, const int zoom, double bounds[static 4]) {
     double res = resolutionOf(profile->initialResolution, zoom);
-    LOGA("res: %f, originShift: %f", res, profile->originShift);
+    LOG("res: %f, originShift: %f", res, profile->originShift);
     bounds[0] = pixelToMeter(profile, res, tx * profile->tileSize);
     bounds[1] = pixelToMeter(profile, res, ty * profile->tileSize);
     bounds[2] = pixelToMeter(profile, res, (tx + 1) * profile->tileSize);
