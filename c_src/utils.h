@@ -1,5 +1,7 @@
 #pragma once
+
 #include <erl_nif.h>
+
 #include <gdal.h>
 #include <ogr_srs_api.h>
 #include <gdalwarper.h>
@@ -33,6 +35,10 @@ typedef struct WorldProfile {
     OGRSpatialReferenceH outputSRS;
 } WorldProfile;
 
+/*
+ * The no data value for a band is generally a special marker value used to mark pixels that are not valid data.
+ * Such pixels should generally not be displayed, nor contribute to analysis operations.
+ */
 typedef struct nodata_list {
     uint32_t len;
     double nodata[];

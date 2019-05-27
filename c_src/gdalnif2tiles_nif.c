@@ -1,6 +1,6 @@
 #include "mylog.h"
-
 #include <erl_nif.h>
+
 #include <gdal.h>
 #include <cpl_conv.h>
 #include <cpl_vsi.h>
@@ -106,7 +106,7 @@ ENIF(create_profile) {
 }
 
 ENIF(open_file) {
-    char filename[128] = {};
+    char filename[128] = {0};
     if (!enif_get_string(env, argv[0], filename, sizeof(filename), ERL_NIF_LATIN1)) {
         return enif_raise_exception(env,
             enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
@@ -119,49 +119,69 @@ ENIF(open_file) {
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
     MyGDALDataset *pGDALDataset = enif_alloc_resource(gdalDatasetResType, sizeof(*pGDALDataset));
-    *pGDALDataset = (MyGDALDataset){0};
-    pGDALDataset->handle = hDataset;
-    pGDALDataset->rasterWidth  = GDALGetRasterXSize(hDataset);
-    pGDALDataset->rasterHeight = GDALGetRasterYSize(hDataset);
-    pGDALDataset->rasterCount  = GDALGetRasterCount(hDataset);
+    LOG("open success: res -> %p, handle -> %p", pGDALDataset, hDataset);
+    ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
+    enif_release_resource(pGDALDataset);    // now you can quit by anyway, with GC no need to GDALClose explicitly
+    *pGDALDataset = (MyGDALDataset) {
+        .handle = hDataset,
+        .rasterWidth  = GDALGetRasterXSize(hDataset),
+        .rasterHeight = GDALGetRasterYSize(hDataset),
+        .rasterCount  = GDALGetRasterCount(hDataset),
+    };
+    if (pGDALDataset->rasterCount == 0) {
+        WARN("Input file '%s' has no raster band", filename);
+        return enif_raise_exception(env, enif_make_string(env, "Input file has no raster band", ERL_NIF_LATIN1));
+    }
+    GDALRasterBandH hBand = GDALGetRasterBand(hDataset, 1);
+    if (GDALGetRasterColorTable(hBand) != NULL) {
+        WARN("Please convert this file to RGB/RGBA by: gdal_translate -of vrt -expand rgba %s temp.vrt", filename);
+        WARN("then run: gdal2tiles temp.vrt");
+        return enif_raise_exception(env,
+                enif_make_string(env, "cannot do color table", ERL_NIF_LATIN1));
+    }
+
     double adfGeoTransform[6];
     if (GDALGetGeoTransform(hDataset, adfGeoTransform) == CE_None) {
         if (adfGeoTransform[2] != 0.0 || adfGeoTransform[4] != 0.0) {
+     //       GDALClose(hDataset);
             return enif_raise_exception(env, 
                     enif_make_tuple2(env, enif_make_atom(env, "not_support"),
                         enif_make_string(env, "Georeference of the raster contains rotation or skew", ERL_NIF_LATIN1)));
         }
     }
+
     pGDALDataset->originX = adfGeoTransform[0];
     pGDALDataset->originY = adfGeoTransform[3];
     pGDALDataset->pixelWidth = adfGeoTransform[1];
     pGDALDataset->pixelHeight = adfGeoTransform[5];
     LOG("coeff[2]: %f, coeff[4]: %f", adfGeoTransform[2],adfGeoTransform[4]);
     
+    // setup_input_srs FROM input file:
     const char* proj = GDALGetProjectionRef(pGDALDataset->handle);
     OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
     if (proj == NULL || OGRERR_NONE != OSRSetFromUserInput(fileSRS, proj)) {
+    //    GDALClose(hDataset);
         OSRDestroySpatialReference(fileSRS);
         return enif_raise_exception(env,
                 enif_make_string(env, "NO spatial reference found", ERL_NIF_LATIN1));
     }
     pGDALDataset->inputSRS = fileSRS;
 
-    nodata_list *nodata = (nodata_list*) enif_alloc(
-            sizeof(*nodata) + pGDALDataset->rasterCount*sizeof(double));
+    // setup_no_data_values FROM inputfile:
+    nodata_list *nodata = (nodata_list*) enif_alloc(sizeof(*nodata) + pGDALDataset->rasterCount*sizeof(double));
     nodata->len = pGDALDataset->rasterCount;
     for (int i = 1; i <= pGDALDataset->rasterCount; ++i) {
         int successFlag = 0;
         GDALRasterBandH hBand = GDALGetRasterBand(pGDALDataset->handle, i);
         nodata->nodata[i] = GDALGetRasterNoDataValue(hBand, &successFlag);
-        LOG("band.%d nodata: %f", i, nodata->nodata[i]);
-        if (!successFlag) WARN("band.%d: no-data found...", i);
+        LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i], successFlag);
+        if (!successFlag) {
+            WARN("band.%d: fail to get NODATA ... set to: %f", i, NAN);
+            nodata->nodata[i] = NAN;    // TODO: the None 
+        }
     }
     pGDALDataset->in_nodata = nodata;
 
-    LOG("open success: res -> %p, handle -> %p", pGDALDataset, hDataset);
-    ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
-    enif_release_resource(pGDALDataset);
     return res;
 }
 
@@ -174,9 +194,7 @@ ENIF(has_nodata) {
         char nodatavalues[128] = {0};
         cat_novalues(pGDALDataset->in_nodata, nodatavalues, sizeof(nodatavalues));
         LOG("nodatavalues: %s", nodatavalues);
-        ERL_NIF_TERM res;
-        unsigned char *valstr = enif_make_new_binary(env, strlen(nodatavalues)+1, &res);
-        memcpy(valstr, nodatavalues, strlen(nodatavalues)+1);
+        ERL_NIF_TERM res = enif_make_string(env, nodatavalues, ERL_NIF_LATIN1);
         return res;
     } 
     return enif_make_atom(env, "none");
@@ -244,6 +262,21 @@ ENIF(info) {
                 &res);
     }
                     
+    if (pGDALDataset->in_nodata) {
+        ERL_NIF_TERM nodatavalues[pGDALDataset->in_nodata->len];
+        for (int i=0; i<pGDALDataset->in_nodata->len; ++i) {
+            if (isnan(pGDALDataset->in_nodata->nodata[i])) {
+                WARN("nan as nodatavalue: %f", NAN);
+                nodatavalues[i] = enif_make_double(env, -99999999.0);
+            }
+            else {
+                nodatavalues[i] = enif_make_double(env, pGDALDataset->in_nodata->nodata[i]);
+            }
+        }
+        enif_make_map_put(env, res, enif_make_atom(env, "nodatavalues"),
+                enif_make_list_from_array(env, nodatavalues, pGDALDataset->in_nodata->len),
+                &res);
+    }
     return res;
 }
 
@@ -279,12 +312,6 @@ ENIF(band_info) {
     enif_make_map_put(env, res, enif_make_atom(env, "pixel_datatype"),
             enif_make_atom(env, rasterDataType(GDALGetRasterDataType(hBand))),
             &res);
-    if (GDALGetRasterColorTable(hBand) != NULL) {
-        WARN("Please convert this file to RGB/RGBA by gdal_translate");
-        return enif_raise_exception(env,
-                enif_make_string(env, "cannot do color table", ERL_NIF_LATIN1));
-
-    }
     int bGotMin, bGotMax;
     double adfMinMax[2] = {
         GDALGetRasterMinimum(hBand, &bGotMin),
@@ -329,9 +356,9 @@ ENIF(correct_dataset) {
         WARN("xml:VRT: failed");
         return enif_make_badarg(env);
     }
-    ErlNifBinary nodataBin;
-    if (!enif_inspect_binary(env, argv[2], &nodataBin)) {
-        WARN("nodata: failed");
+    char nodatavalues[128] = {0};
+    if (enif_get_string(env, argv[2], nodatavalues, sizeof(nodatavalues), ERL_NIF_LATIN1) <= 0) {
+        WARN("get_string for nodatavalues: failed");
         return enif_make_badarg(env);
     }
     char *filename = "/vsimem/tiles.mem";
@@ -339,8 +366,8 @@ ENIF(correct_dataset) {
     memcpy(data, bin.data, bin.size);
     VSILFILE *memFile = VSIFileFromMemBuffer(filename, data, bin.size, TRUE);
     GDALDatasetH correctedDataset = GDALOpen(filename, GA_ReadOnly);
-    LOG("correctedDataset: %p", correctedDataset);
-    if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", (const char*)nodataBin.data, NULL)) {
+    LOG("correctedDataset: %p, with nodatavalue: %s", correctedDataset, nodatavalues);
+    if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", (const char*)nodatavalues, NULL)) {
         return enif_raise_exception(env, enif_make_string(env, "fail to set metadata", ERL_NIF_LATIN1));
     }
     GDALClose(warpedDataset->warped_input_dataset);

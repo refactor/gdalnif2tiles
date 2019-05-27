@@ -10,7 +10,6 @@
 -export([assign_profile/2]).
 -export([reproj2profile/2]).
 -export([get_xmlvrt/1]).
--export([update_no_data_values/2]).
 
 -on_load(init/0).
 
@@ -32,7 +31,7 @@ create_profile(_Profile) ->
 open_file(_File) ->
     erlang:nif_error(notfound).
 
--spec has_nodata(reference()) -> boolean().
+-spec has_nodata(reference()) -> string() | none.
 has_nodata(_Dataset) ->
     erlang:nif_error(notfound).
 
@@ -52,7 +51,7 @@ get_pixel(_Dataset, _X, _Y) ->
 assign_profile(Dataset, Profile) ->
     WDataset = reproj2profile(Dataset, Profile),
     Nodata = has_nodata(Dataset),
-    io:format("Nodata: ~p~n", [Nodata]),
+    io:format("Nodata: ~ts~n", [Nodata]),
     case Nodata of
         none ->
             pass;
@@ -69,6 +68,7 @@ reproj2profile(_Dataset, _Profile) ->
 get_xmlvrt(_WDataset) ->
     erlang:nif_error(notfound).
 
+%% @private
 -spec update_no_data_values(reference(), binary()) -> reference().
 update_no_data_values(WDataset, Nodata) ->
     Str = get_xmlvrt(WDataset),
@@ -79,6 +79,7 @@ update_no_data_values(WDataset, Nodata) ->
     CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
     correct_dataset(WDataset, CorrectedStr, Nodata).
 
+%% @private
 -spec correct_dataset(reference(), binary(), binary()) -> reference().
 correct_dataset(_Dataset, _CorrectedStr, _Nodata) ->
     erlang:nif_error(notfound).
