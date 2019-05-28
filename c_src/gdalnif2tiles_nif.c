@@ -173,11 +173,10 @@ ENIF(open_file) {
     for (int i = 1; i <= pGDALDataset->rasterCount; ++i) {
         int successFlag = 0;
         GDALRasterBandH hBand = GDALGetRasterBand(pGDALDataset->handle, i);
-        nodata->nodata[i] = GDALGetRasterNoDataValue(hBand, &successFlag);
-        LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i], successFlag);
+        nodata->nodata[i - 1] = GDALGetRasterNoDataValue(hBand, &successFlag);
+        LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
         if (!successFlag) {
-            WARN("band.%d: fail to get NODATA ... set to: %f", i, NAN);
-            nodata->nodata[i] = NAN;    // TODO: the None 
+            WARN("band.%d: fail to get NODATA ... BUT set to: %f", i, nodata->nodata[i - 1]);
         }
     }
     pGDALDataset->in_nodata = nodata;
@@ -265,13 +264,7 @@ ENIF(info) {
     if (pGDALDataset->in_nodata) {
         ERL_NIF_TERM nodatavalues[pGDALDataset->in_nodata->len];
         for (int i=0; i<pGDALDataset->in_nodata->len; ++i) {
-            if (isnan(pGDALDataset->in_nodata->nodata[i])) {
-                WARN("nan as nodatavalue: %f", NAN);
-                nodatavalues[i] = enif_make_double(env, -99999999.0);
-            }
-            else {
-                nodatavalues[i] = enif_make_double(env, pGDALDataset->in_nodata->nodata[i]);
-            }
+            nodatavalues[i] = enif_make_double(env, pGDALDataset->in_nodata->nodata[i]);
         }
         enif_make_map_put(env, res, enif_make_atom(env, "nodatavalues"),
                 enif_make_list_from_array(env, nodatavalues, pGDALDataset->in_nodata->len),
