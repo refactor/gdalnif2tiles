@@ -1,4 +1,7 @@
 -module(gdalnif2tiles).
+
+-include_lib("kernel/include/logger.hrl").
+
 -export([create_profile/1]).
 -export([open_file/1]).
 -export([has_nodata/1]).
@@ -31,6 +34,7 @@ create_profile(_Profile) ->
 open_file(_File) ->
     erlang:nif_error(notfound).
 
+%% @private
 -spec has_nodata(reference()) -> string() | none.
 has_nodata(_Dataset) ->
     erlang:nif_error(notfound).
@@ -51,7 +55,7 @@ get_pixel(_Dataset, _X, _Y) ->
 assign_profile(Dataset, Profile) ->
     WDataset = reproj2profile(Dataset, Profile),
     Nodata = has_nodata(Dataset),
-    io:format("Nodata: ~ts~n", [Nodata]),
+    logger:debug("Nodata: ~ts~n", [Nodata]),
     case Nodata of
         none ->
             pass;
@@ -69,7 +73,7 @@ get_xmlvrt(_WDataset) ->
     erlang:nif_error(notfound).
 
 %% @private
--spec update_no_data_values(reference(), binary()) -> reference().
+-spec update_no_data_values(reference(), string()) -> reference().
 update_no_data_values(WDataset, Nodata) ->
     Str = get_xmlvrt(WDataset),
     {XmlDoc,_} = xmerl_scan:string(Str),

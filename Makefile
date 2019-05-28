@@ -13,4 +13,6 @@ CPPFLAGS += -MMD
 clean::
 	-@rm -f $(wildcard $(C_SRC_DIR)/*.d)
 
+SHELL_OPTS = -config config/sys.config
+
 include erlang.mk
