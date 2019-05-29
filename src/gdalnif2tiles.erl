@@ -4,14 +4,14 @@
 
 -export([create_profile/1]).
 -export([open_file/1]).
--export([has_nodata/1]).
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
+-export([warp_with_profile/2]).
 -export([tile_bounds/4]).
 
--export([assign_profile/2]).
--export([reproj2profile/2]).
+-export([correct_dataset/3]).
+-export([reproj_with_profile/2]).
 -export([get_xmlvrt/1]).
 
 -on_load(init/0).
@@ -26,17 +26,12 @@ init() ->
               end,
     erlang:load_nif(filename:join(PrivDir, "gdalnif2tiles"), 0).
 
--spec create_profile('MERCATOR'|'GEODETIC') -> reference().
+-spec create_profile('mercator'|'geodetic') -> reference().
 create_profile(_Profile) ->
     erlang:nif_error(notfound).
 
 -spec open_file(file:filename()) -> reference().
 open_file(_File) ->
-    erlang:nif_error(notfound).
-
-%% @private
--spec has_nodata(reference()) -> string() | none.
-has_nodata(_Dataset) ->
     erlang:nif_error(notfound).
 
 -spec info(reference()) -> map().
@@ -51,11 +46,11 @@ band_info(_Dataset, _BandNo) ->
 get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).
 
--spec assign_profile(reference(), reference()) -> reference().
-assign_profile(Dataset, Profile) ->
-    WDataset = reproj2profile(Dataset, Profile),
+-spec warp_with_profile(reference(), reference()) -> reference().
+warp_with_profile(Dataset, Profile) ->
+    WDataset = reproj_with_profile(Dataset, Profile),
     Nodata = has_nodata(Dataset),
-    logger:debug("Nodata: ~ts~n", [Nodata]),
+    ?LOG_DEBUG("Nodata: ~ts", [Nodata]),
     case Nodata of
         none ->
             pass;
@@ -64,10 +59,21 @@ assign_profile(Dataset, Profile) ->
     end,
     WDataset.
 
--spec reproj2profile(reference(), reference()) -> reference().
-reproj2profile(_Dataset, _Profile) ->
+-spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
+tile_bounds(_Dataset, _tx, _ty, _tz) ->
     erlang:nif_error(notfound).
 
+%% @private
+-spec reproj_with_profile(reference(), reference()) -> reference().
+reproj_with_profile(_Dataset, _Profile) ->
+    erlang:nif_error(notfound).
+
+%% @private
+-spec has_nodata(reference()) -> string() | none.
+has_nodata(_Dataset) ->
+    erlang:nif_error(notfound).
+
+%% @private
 -spec get_xmlvrt(reference()) -> string().
 get_xmlvrt(_WDataset) ->
     erlang:nif_error(notfound).
@@ -88,20 +94,20 @@ update_no_data_values(WDataset, Nodata) ->
 correct_dataset(_Dataset, _CorrectedStr, _Nodata) ->
     erlang:nif_error(notfound).
 
+%% @private
 add_gdal_warp_options_to_string({Tag, Attributes, Content}) ->
     NewContent = add_gdal_warp_options(Content),
     {Tag, Attributes, NewContent}.
 
+%% @private
 add_gdal_warp_options([{'GDALWarpOptions',Attrs,Content} | Rest]) ->
     [{'GDALWarpOptions',Attrs, add_option(Content)} | Rest];
 add_gdal_warp_options([Head|Rest]) ->
     [Head | add_gdal_warp_options(Rest)].
 
+%% @private
 add_option([{'Option',_Attrs,_Content}|_Rest] = Content) ->
     [{'Option', [{name,"UNIFIED_SRC_NODATA"}],["YES"]} | ["\n    "|Content]];
 add_option([Head | Rest]) ->
     [Head | add_option(Rest)].
 
--spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
-tile_bounds(_Dataset, _tx, _ty, _tz) ->
-    erlang:nif_error(notfound).

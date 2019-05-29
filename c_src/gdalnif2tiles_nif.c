@@ -25,9 +25,9 @@ static ErlNifResourceType* profileResType;
 
 void profile_dtor(ErlNifEnv* env, void* obj) {
     WorldProfile *profile = (WorldProfile*)obj;
-    if (profile->outputSRS != NULL) {
-        OSRDestroySpatialReference(profile->outputSRS);
-        profile->outputSRS = NULL;
+    if (profile->output_srs != NULL) {
+        OSRDestroySpatialReference(profile->output_srs);
+        profile->output_srs = NULL;
     }
 }
 
@@ -35,7 +35,7 @@ static ErlNifResourceType* gdalDatasetResType;
 
 void dataset_dtor(ErlNifEnv* env, void* obj) {
     MyGDALDataset *pGDALDataset = (MyGDALDataset*)obj;
-    LOG("destroy pGDALDataset -> %p, handle -> %p, profile -> %p", pGDALDataset, pGDALDataset->handle, pGDALDataset->profile);
+    LOG("destroy pGDALDataset -> %p, handle -> %p", pGDALDataset, pGDALDataset->handle);
     if (pGDALDataset) {
         if (pGDALDataset->handle != NULL) {
             LOG("close dataset: %p", pGDALDataset->handle);
@@ -63,18 +63,18 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
         GDALClose(warpedDataset->warped_input_dataset);
         warpedDataset->warped_input_dataset = NULL;
     }
-    if (warpedDataset->memFile != NULL) {
+    if (warpedDataset->memFile) {
         LOG("close memFile: %p", warpedDataset->memFile);
         VSIFCloseL(warpedDataset->memFile);
         warpedDataset->memFile = NULL;
     }
-    if (warpedDataset->profile != NULL) {
-        LOG("release profile: %p", warpedDataset->profile);
+    if (warpedDataset->profile) {
+        LOG("release warped profile: %p", warpedDataset->profile);
         enif_release_resource((void*)warpedDataset->profile);
         warpedDataset->profile = NULL;
     }
-    if (warpedDataset->myGDALDataset != NULL) {
-        LOG("release myGDALDataset -> %p", warpedDataset->myGDALDataset);
+    if (warpedDataset->myGDALDataset) {
+        LOG("release warped myGDALDataset -> %p", warpedDataset->myGDALDataset);
         enif_release_resource((void*)warpedDataset->myGDALDataset);
         warpedDataset->myGDALDataset = NULL;
     }
@@ -82,12 +82,12 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
 
 ENIF(create_profile) {
     LOG("argv: %T", argv[0]);
-    char buf[32];
+    char buf[32] = {0};
     if (!enif_get_atom(env, argv[0], buf, sizeof(buf), ERL_NIF_LATIN1)) {
         return enif_make_badarg(env);
     }
 
-    world_profile_type profileType = PROFILE_TYPE_COUNT;
+    profile_type profileType = PROFILE_TYPE_COUNT;
     for (int i=0; i<PROFILE_TYPE_COUNT; ++i) {
         if (strncasecmp(WORLD_PROFILE_TYPES[i], buf, sizeof(buf)) == 0) {
             profileType = i;
@@ -95,6 +95,7 @@ ENIF(create_profile) {
         }
     }
     if (profileType == PROFILE_TYPE_COUNT) {
+        WARN("unknow profile_type: %s", buf);
         return enif_make_badarg(env);
     }
 
@@ -198,23 +199,6 @@ ENIF(has_nodata) {
         return res;
     } 
     return enif_make_atom(env, "none");
-}
-
-WarpedDataset *reprojectWithProfile(const MyGDALDataset *pGDALDataset, const WorldProfile *profile) {
-    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
-    *warpedDataset = (WarpedDataset){0};
-
-    warpedDataset->warped_input_dataset = reprojectDataset(pGDALDataset, profile->outputSRS);
-    if (warpedDataset->warped_input_dataset != pGDALDataset->handle) {
-        warpedDataset->warped = true;
-    }
-
-    warpedDataset->myGDALDataset = pGDALDataset;
-    enif_keep_resource((void*)pGDALDataset);
-    warpedDataset->profile = profile;
-    enif_keep_resource((void*)profile);
-
-    return warpedDataset;
 }
 
 ENIF(info) {
@@ -325,16 +309,33 @@ ENIF(band_info) {
     return res;
 }
 
-ENIF(reproj2profile) {
+static inline void reprojectTo(WarpedDataset *warpedDataset, const MyGDALDataset *pGDALDataset, const WorldProfile *destProfile) {
+    *warpedDataset = (WarpedDataset){0};
+
+    warpedDataset->warped_input_dataset = reprojectDataset(pGDALDataset, destProfile->output_srs);
+    if (warpedDataset->warped_input_dataset != pGDALDataset->handle) {
+        warpedDataset->warped = true;
+    }
+
+    warpedDataset->myGDALDataset = pGDALDataset;
+    enif_keep_resource((void*)pGDALDataset);
+    warpedDataset->profile = destProfile;
+    enif_keep_resource((void*)destProfile);
+}
+
+ENIF(reproj_with_profile) {
     MyGDALDataset *pGDALDataset = NULL;
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+        WARN("fail to get GDAL dataset resource");
         return enif_make_badarg(env);
     }
     WorldProfile *profile = NULL;
     if (!enif_get_resource(env, argv[1], profileResType, (void**)&profile)) {
         return enif_make_badarg(env);
     }
-    WarpedDataset *warpedDataset = reprojectWithProfile(pGDALDataset, profile);
+
+    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
+    reprojectTo(warpedDataset, pGDALDataset, profile);
     ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
     enif_release_resource(warpedDataset);
     return res;
@@ -343,6 +344,7 @@ ENIF(reproj2profile) {
 ENIF(correct_dataset) {
     WarpedDataset *warpedDataset = NULL;
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
+        WARN("fail to get warped dataset");
         return enif_make_badarg(env);
     }
     ErlNifBinary bin;
@@ -372,6 +374,7 @@ ENIF(correct_dataset) {
 ENIF(get_xmlvrt) {
     WarpedDataset *warpedDataset = NULL;
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
+        WARN("fail to get warped dataset");
         return enif_make_badarg(env);
     }
     char** md = GDALGetMetadata(warpedDataset->warped_input_dataset, "xml:VRT");
@@ -463,7 +466,7 @@ static ErlNifFunc nif_funcs[] = {
     {"create_profile", 1, create_profile, 0},
     {"open_file",      1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"has_nodata",     1, has_nodata, 0},
-    {"reproj2profile", 2, reproj2profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"correct_dataset",3, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"info",           1, info, 0},
