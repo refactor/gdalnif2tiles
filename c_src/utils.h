@@ -13,8 +13,6 @@
 
 #include "mylog.h"
 
-__attribute__ ((weak)) void OSRSetAxisMappingStrategy(OGRSpatialReferenceH hSRS, OSRAxisMappingStrategy strategy);
-
 #define MAXZOOMLEVEL 32
 
 typedef enum world_profile_type {
@@ -106,7 +104,7 @@ void createProfile(world_profile_type profileType, WorldProfile *profile) {
     double initResolution = 0;
     double originShift = 0;
     OGRSpatialReferenceH output_srs = OSRNewSpatialReference(NULL);
-    if (OSRSetAxisMappingStrategy) OSRSetAxisMappingStrategy(output_srs, OAMS_TRADITIONAL_GIS_ORDER);
+    //if (OSRSetAxisMappingStrategy) OSRSetAxisMappingStrategy(output_srs, OAMS_TRADITIONAL_GIS_ORDER);
     switch(profileType) {
         case MERCATOR:
             initResolution = 2 * M_PI * 6378137 / tileSize;

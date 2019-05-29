@@ -165,8 +165,7 @@ ENIF(open_file) {
         return enif_raise_exception(env,
                 enif_make_string(env, "NO spatial reference found", ERL_NIF_LATIN1));
     }
-    if (OSRSetAxisMappingStrategy)
-        OSRSetAxisMappingStrategy(fileSRS, OAMS_TRADITIONAL_GIS_ORDER);
+    //if (OSRSetAxisMappingStrategy) OSRSetAxisMappingStrategy(fileSRS, OAMS_TRADITIONAL_GIS_ORDER);
     pGDALDataset->inputSRS = fileSRS;
 
     // setup_no_data_values FROM inputfile:
