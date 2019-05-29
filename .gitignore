@@ -1,6 +1,8 @@
 .DS_Store
 .erlang.mk/
 c_src/env.mk
+erl_crash.dump
+config/extra.config
 *.sw[op]
 *.so
 *.beam

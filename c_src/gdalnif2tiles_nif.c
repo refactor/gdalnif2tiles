@@ -439,6 +439,14 @@ ENIF(get_pixel) {
 static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     GDALAllRegister();
     CPLSetErrorHandler(MyGDALErrorHandler);
+    const char* gdalRuntimeReleaseName = GDALVersionInfo("GDAL_RELEASE_NAME");
+    const char* gdalRuntimeVersionNum  = GDALVersionInfo("VERSION_NUM");
+    LOG("GDAL release name %s", gdalRuntimeReleaseName);
+    LOG("GDAL version num: %s", gdalRuntimeVersionNum);
+    int res = GDALCheckVersion(2, 4, "what the hell...");
+    LOG("check 2.4 version: %d", res);
+    res = GDALCheckVersion(3, 0, "what the hell...");
+    LOG("check 3.0 version: %d", res);
 
     profileResType = enif_open_resource_type(env, NULL, "worldProfile", profile_dtor,
             ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);

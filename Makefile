@@ -13,6 +13,13 @@ CPPFLAGS += -MMD
 clean::
 	-@rm -f $(wildcard $(C_SRC_DIR)/*.d)
 
-SHELL_OPTS = -config config/sys.config
+CONFIG ?= config/sys.config
+EXTRA_CONFIG ?= config/extra.config
+
+SHELL=/bin/bash
+SHELL_OPTS = -config ${CONFIG}
+
+shell::
+	@if ! [[ -a ${EXTRA_CONFIG} ]]; then echo "[]." > ${EXTRA_CONFIG}; fi
 
 include erlang.mk
