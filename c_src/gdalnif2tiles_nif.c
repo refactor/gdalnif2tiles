@@ -165,6 +165,8 @@ ENIF(open_file) {
         return enif_raise_exception(env,
                 enif_make_string(env, "NO spatial reference found", ERL_NIF_LATIN1));
     }
+    if (OSRSetAxisMappingStrategy)
+        OSRSetAxisMappingStrategy(fileSRS, OAMS_TRADITIONAL_GIS_ORDER);
     pGDALDataset->inputSRS = fileSRS;
 
     // setup_no_data_values FROM inputfile:
@@ -443,7 +445,7 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     const char* gdalRuntimeVersionNum  = GDALVersionInfo("VERSION_NUM");
     LOG("GDAL release name %s", gdalRuntimeReleaseName);
     LOG("GDAL version num: %s", gdalRuntimeVersionNum);
-    int res = GDALCheckVersion(2, 4, "what the hell...");
+    int res = GDALCheckVersion(2, 4, "WHAT the hell..., egdal2tiles");
     LOG("check 2.4 version: %d", res);
     res = GDALCheckVersion(3, 0, "what the hell...");
     LOG("check 3.0 version: %d", res);
