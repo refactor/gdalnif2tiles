@@ -95,7 +95,13 @@ ENIF(create_profile) {
     }
 
     WorldProfile *profile = enif_alloc_resource(profileResType, sizeof(*profile));
-    createProfile(profileType, profile);
+    *profile = (WorldProfile) { 0 };
+    if (argc == 2) {
+        LOG("TMS compatible...");
+        profile->tmscompatible = true;
+    }
+
+    initProfile(profileType, profile);
     ERL_NIF_TERM res = enif_make_resource(env, profile);
     enif_release_resource(profile);
     return res;
@@ -115,6 +121,7 @@ ENIF(open_file) {
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
     MyGDALDataset *pGDALDataset = enif_alloc_resource(gdalDatasetResType, sizeof(*pGDALDataset));
+    *pGDALDataset = (MyGDALDataset) { 0 };
     LOG("open success: res -> %p, handle -> %p", pGDALDataset, hDataset);
     ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
     enif_release_resource(pGDALDataset);    // now you can quit by anyway, with GC no need to GDALClose explicitly
@@ -311,8 +318,6 @@ ENIF(band_info) {
 }
 
 static inline void reprojectTo(WarpedDataset *warpedDataset, const MyGDALDataset *pGDALDataset, const WorldProfile *destProfile) {
-    *warpedDataset = (WarpedDataset) { 0 };
-
     warpedDataset->warped_input_dataset = reprojectDataset(pGDALDataset, destProfile->output_srs);
     if (warpedDataset->warped_input_dataset != pGDALDataset->handle) {
         warpedDataset->warped = true;
@@ -336,6 +341,7 @@ ENIF(reproj_with_profile) {
     }
 
     WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
+    *warpedDataset = (WarpedDataset) { 0 };
     reprojectTo(warpedDataset, pGDALDataset, profile);
     ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
     enif_release_resource(warpedDataset);
@@ -471,6 +477,7 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 
 static ErlNifFunc nif_funcs[] = {
     {"create_profile", 1, create_profile, 0},
+    {"create_profile", 2, create_profile, 0},
     {"open_file",      1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"has_nodata",     1, has_nodata, 0},
     {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},

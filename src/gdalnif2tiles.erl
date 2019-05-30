@@ -3,6 +3,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 -export([create_profile/1]).
+-export([create_profile/2]).
 -export([open_file/1]).
 -export([info/1]).
 -export([band_info/2]).
@@ -25,6 +26,10 @@ init() ->
                       Path
               end,
     erlang:load_nif(filename:join(PrivDir, "gdalnif2tiles"), 0).
+
+-spec create_profile('geodetic', 'tmscompatible') -> reference().
+create_profile(_Profile, _Tmscompatible) ->
+    erlang:nif_error(notfound).
 
 -spec create_profile('mercator'|'geodetic') -> reference().
 create_profile(_Profile) ->
