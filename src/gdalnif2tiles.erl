@@ -54,13 +54,14 @@ get_pixel(_Dataset, _X, _Y) ->
 -spec warp_with_profile(reference(), reference()) -> reference().
 warp_with_profile(Dataset, Profile) ->
     WDataset = reproj_with_profile(Dataset, Profile),
-    Nodata = has_nodata(Dataset),
-    ?LOG_DEBUG("Nodata: ~ts", [Nodata]),
-    case Nodata of
-        none ->
-            pass;
-        _ ->
+    try has_nodata(Dataset) of
+        Nodata ->
+            ?LOG_DEBUG("Nodata: ~ts", [Nodata]),
             update_no_data_values(WDataset, Nodata)
+    catch
+        error:Reason ->
+            ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: ~p", [Reason]),
+            update_alpha_value_for_non_alpha_inputs(WDataset)
     end,
     %% @TODO:
     %%  update_alpha_value_for_non_alpha_inputs
@@ -117,4 +118,18 @@ add_option([{'Option',_Attrs,_Content}|_Rest] = Content) ->
     [{'Option', [{name,"UNIFIED_SRC_NODATA"}],["YES"]} | ["\n    "|Content]];
 add_option([Head | Rest]) ->
     [Head | add_option(Rest)].
+
+%% @private
+update_alpha_value_for_non_alpha_inputs(WDataset) ->
+    case has_alpha_band(WDataset) of
+    false ->
+        %% rasterCount in [1,3]    
+        WDataset;
+    true ->
+        WDataset
+    end.
+
+%% @private
+has_alpha_band(_WDataset) ->
+    erlang:nif_error(notfound).
 

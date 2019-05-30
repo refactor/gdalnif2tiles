@@ -20,6 +20,8 @@ void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
 #define ENIF(name) static ERL_NIF_TERM name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
 static ERL_NIF_TERM ATOM_OK;
+static ERL_NIF_TERM ATOM_TRUE;
+static ERL_NIF_TERM ATOM_FALSE;
 
 static ErlNifResourceType* profileResType;
 
@@ -67,11 +69,6 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
         LOG("release warped profile: %p", warpedDataset->profile);
         enif_release_resource((void*)warpedDataset->profile);
         warpedDataset->profile = NULL;
-    }
-    if (warpedDataset->myGDALDataset) {
-        LOG("release warped myGDALDataset -> %p", warpedDataset->myGDALDataset);
-        enif_release_resource((void*)warpedDataset->myGDALDataset);
-        warpedDataset->myGDALDataset = NULL;
     }
 }
 
@@ -186,6 +183,7 @@ ERL_NIF_TERM extract_nodatavalues(ErlNifEnv *env, GDALDatasetH hDataset) {
         LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
         if (!successFlag) {
             WARN("band.%d: fail to get NODATA ... BUT set to: %f", i, nodata->nodata[i - 1]);
+            return enif_make_atom(env, "none");
         }
     }
     char nodatavalues[128] = {0};
@@ -202,7 +200,24 @@ ENIF(has_nodata) {
     if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
         return enif_make_badarg(env);
     }
-    return extract_nodatavalues(env, pGDALDataset->handle);
+    ERL_NIF_TERM ret = extract_nodatavalues(env, pGDALDataset->handle);
+    if (enif_is_atom(env, ret))
+        return enif_raise_exception(env, ret);
+    return ret;    
+}
+
+ENIF(has_alpha_band) {
+    const WarpedDataset *wGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    GDALDatasetH hDataset = NULL;
+    if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
+    int rasterCount = GDALGetRasterCount(hDataset);
+    if (rasterCount == 1 || rasterCount == 3)
+        return ATOM_FALSE;
+    else
+        return ATOM_TRUE;
 }
 
 ENIF(info) {
@@ -216,7 +231,7 @@ ENIF(info) {
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
     if (pGDALDataset) hDataset = pGDALDataset->handle;
 
-    LOG("info success: res -> %p, handle -> %p", pGDALDataset, hDataset);
+    LOG("info success, hDataset -> %p", hDataset);
     GDALDriverH hDriver = GDALGetDatasetDriver(hDataset);
     ERL_NIF_TERM res = enif_make_new_map(env);
     enif_make_map_put(env, res, enif_make_atom(env, "driverShortName"),
@@ -255,8 +270,15 @@ ENIF(info) {
                 &res);
     }
                     
+    ERL_NIF_TERM ndv = extract_nodatavalues(env, hDataset);
+    if (enif_is_atom(env, ndv)) {
+        WARN("there is NO nodatavalues...");
+        return res;
+    }
+    LOG("pass...");
+
     enif_make_map_put(env, res, enif_make_atom(env, "nodataValues"),
-            extract_nodatavalues(env, hDataset),
+            ndv,
             &res);
     return res;
 }
@@ -323,8 +345,6 @@ static inline void reprojectTo(WarpedDataset *warpedDataset, const MyGDALDataset
         warpedDataset->warped = true;
     }
 
-    warpedDataset->myGDALDataset = pGDALDataset;
-    enif_keep_resource((void*)pGDALDataset);
     warpedDataset->profile = destProfile;
     enif_keep_resource((void*)destProfile);
 }
@@ -472,6 +492,8 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     warpedDatasetResType = enif_open_resource_type(env, NULL, "warpedDataset", warped_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
 
     ATOM_OK = enif_make_atom(env, "ok");
+    ATOM_TRUE = enif_make_atom(env, "true");
+    ATOM_FALSE = enif_make_atom(env, "false");
     return 0;
 }
 
@@ -483,6 +505,7 @@ static ErlNifFunc nif_funcs[] = {
     {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"correct_dataset",3, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"has_alpha_band", 1, has_alpha_band, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
     {"tile_bounds",    4, tile_bounds, 0},

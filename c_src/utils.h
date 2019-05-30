@@ -49,7 +49,6 @@ typedef struct WarpedDataset {
     GDALDatasetH warped_input_dataset;
 
     const WorldProfile *profile;
-    const MyGDALDataset* myGDALDataset;
     char vmfilename[64];
 } WarpedDataset;
 
