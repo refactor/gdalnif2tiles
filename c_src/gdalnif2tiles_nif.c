@@ -214,10 +214,7 @@ ENIF(has_alpha_band) {
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
     int rasterCount = GDALGetRasterCount(hDataset);
-    if (rasterCount == 1 || rasterCount == 3)
-        return ATOM_FALSE;
-    else
-        return ATOM_TRUE;
+    return enif_make_int(env, rasterCount);
 }
 
 ENIF(info) {
