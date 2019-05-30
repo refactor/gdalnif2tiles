@@ -57,6 +57,8 @@ warp_with_profile(Dataset, Profile) ->
         _ ->
             update_no_data_values(WDataset, Nodata)
     end,
+    %% @TODO:
+    %%  update_alpha_value_for_non_alpha_inputs
     WDataset.
 
 -spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
@@ -91,7 +93,7 @@ update_no_data_values(WDataset, Nodata) ->
 
 %% @private
 -spec correct_dataset(reference(), binary(), binary()) -> reference().
-correct_dataset(_Dataset, _CorrectedStr, _Nodata) ->
+correct_dataset(_Dataset, _VrtStr, _Nodata) ->
     erlang:nif_error(notfound).
 
 %% @private

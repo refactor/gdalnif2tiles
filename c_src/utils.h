@@ -20,7 +20,7 @@
  * Such pixels should generally not be displayed, nor contribute to analysis operations.
  */
 typedef struct nodata_list {
-    uint32_t len;
+    uint32_t bandCount;
     double nodata[];
 } nodata_list;
 
@@ -38,7 +38,6 @@ typedef struct MyGDALDataset {
     double minBoundX, maxBoundX;
     double minBoundY, maxBoundY;
     double minBoundZ, maxBoundZ;
-    const nodata_list *in_nodata;
 } MyGDALDataset;
 
 /**
@@ -49,15 +48,15 @@ typedef struct WarpedDataset {
     bool warped;    // tag to determine GC
     GDALDatasetH warped_input_dataset;
 
-    VSILFILE* memFile;
     const WorldProfile *profile;
     const MyGDALDataset* myGDALDataset;
+    char vmfilename[64];
 } WarpedDataset;
 
 static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
     char *ptr = buf;
     int n = snprintf(ptr, buf_sz, "%f", nodata->nodata[0]);
-    for (int i = 1; i < nodata->len; ++i) {
+    for (int i = 1; i < nodata->bandCount; ++i) {
         buf_sz -= n;
         ptr += n;
         n = snprintf(ptr, buf_sz, " %f", nodata->nodata[i]);
