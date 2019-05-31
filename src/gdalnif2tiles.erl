@@ -11,7 +11,7 @@
 -export([warp_with_profile/2]).
 -export([tile_bounds/4]).
 
--export([correct_dataset/3]).
+-export([nb_data_bands/1]).
 -export([reproj_with_profile/2]).
 -export([get_xmlvrt/1]).
 
@@ -62,8 +62,7 @@ warp_with_profile(Dataset, Profile) ->
         error:Reason ->
             ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: ~p", [Reason]),
             update_alpha_value_for_non_alpha_inputs(WDataset)
-    end,
-    WDataset.
+    end.
 
 -spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
 tile_bounds(_Dataset, _tx, _ty, _tz) ->
@@ -114,17 +113,17 @@ add_option([Head | Rest]) ->
 
 %% @private
 update_alpha_value_for_non_alpha_inputs(WDataset) ->
-    Band = has_alpha_band(WDataset),
+    Band = raster_count(WDataset),
     if Band == 1 ; Band == 3 ->
         %% rasterCount in [1,3]    
         Str = get_xmlvrt(WDataset),
         {XmlDoc,_} = xmerl_scan:string(Str),
         TL = xmerl_lib:simplify_element(XmlDoc),
         NewTL = add_VRTRasterBand_to_string(Band, TL),
-        ?LOG_DEBUG("~p", [NewTL]),
+  %      ?LOG_DEBUG("~p", [NewTL]),
         CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
-        ?LOG_DEBUG("~ts", [CorrectedStr]),
-        %correct_dataset(WDataset, CorrectedStr, Nodata);
+        file:write_file("vtiles.vrt", CorrectedStr),
+        correct_dataset(WDataset, CorrectedStr),
         WDataset;
     true ->
         WDataset
@@ -163,6 +162,16 @@ correct_dataset(_Dataset, _VrtStr, _Nodata) ->
     erlang:nif_error(notfound).
 
 %% @private
-has_alpha_band(_WDataset) ->
+-spec correct_dataset(reference(), binary()) -> reference().
+correct_dataset(_Dataset, _VrtStr) ->
+    erlang:nif_error(notfound).
+
+%% @private
+raster_count(WDataset) ->
+    #{bandCount := RC} = info(WDataset),
+    RC.
+
+%% Return the number of data (non-alpha) bands of a gdal dataset
+nb_data_bands(_Dataset) ->
     erlang:nif_error(notfound).
 

@@ -110,7 +110,8 @@ ENIF(open_file) {
         return enif_raise_exception(env,
             enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
     }
-    LOG("opening...");
+    LOG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
+    LOG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
     GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
     LOG("hDataset -> %p", hDataset);
     if (hDataset == NULL) {
@@ -182,7 +183,7 @@ ERL_NIF_TERM extract_nodatavalues(ErlNifEnv *env, GDALDatasetH hDataset) {
         nodata->nodata[i - 1] = GDALGetRasterNoDataValue(hBand, &successFlag);
         LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
         if (!successFlag) {
-            WARN("band.%d: fail to get NODATA ... BUT set to: %f", i, nodata->nodata[i - 1]);
+            WARN("band.%d: NOT sucess get NODATA ... BUT get this: %f", i, nodata->nodata[i - 1]);
             return enif_make_atom(env, "none");
         }
     }
@@ -206,14 +207,25 @@ ENIF(has_nodata) {
     return ret;    
 }
 
-ENIF(has_alpha_band) {
+ENIF(nb_data_bands) {
+    const MyGDALDataset *pGDALDataset = NULL;
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset) &&
+        !enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
+    if (pGDALDataset) hDataset = pGDALDataset->handle;
+
+    const int bandNo = 1;
+    GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
+    GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
     int rasterCount = GDALGetRasterCount(hDataset);
+    if ((GDALGetMaskFlags(alphaband) & GMF_ALPHA) ||
+        rasterCount == 4 || rasterCount == 2) {
+        rasterCount -= 1;
+    }
     return enif_make_int(env, rasterCount);
 }
 
@@ -342,6 +354,9 @@ static inline void reprojectTo(WarpedDataset *warpedDataset, const MyGDALDataset
         warpedDataset->warped = true;
     }
 
+    char** files = GDALGetFileList(pGDALDataset->handle);
+    while (*files) LOG("GDALGetFileList: %s", *files++);
+
     warpedDataset->profile = destProfile;
     enif_keep_resource((void*)destProfile);
 }
@@ -376,26 +391,31 @@ ENIF(correct_dataset) {
         WARN("xml:VRT: failed");
         return enif_make_badarg(env);
     }
-    char nodatavalues[128] = {0};
-    if (enif_get_string(env, argv[2], nodatavalues, sizeof(nodatavalues), ERL_NIF_LATIN1) <= 0) {
-        WARN("get_string for nodatavalues: failed");
-        return enif_make_badarg(env);
-    }
 
     // mimic the python API: gdal.Open(vrt_string)
     const char *filename = "/vsimem/tmp/tiles.vrt";
     LOG("filename: %s", filename);
     uint8_t *vrt_string = malloc(bin.size);
     memcpy(vrt_string, bin.data, bin.size);
+    //LOG("vrt_string: %s", vrt_string);
     VSIFCloseL( VSIFileFromMemBuffer(filename, vrt_string, bin.size, TRUE) );
     // no deed to free vrt_string, because the last TRUE means
     // the memory file system handler will take ownership of vrt_string, freeing it when the file is deleted.
     GDALDatasetH correctedDataset = GDALOpen(filename, GA_ReadOnly);
-    LOG("correctedDataset: %p, with nodatavalue: %s", correctedDataset, nodatavalues);
-    if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", (const char*)nodatavalues, NULL)) {
-        return enif_raise_exception(env, enif_make_string(env, "fail to set metadata", ERL_NIF_LATIN1));
+
+    if (argc == 3) {
+        char nodatavalues[128] = {0};
+        if (enif_get_string(env, argv[2], nodatavalues, sizeof(nodatavalues), ERL_NIF_LATIN1) <= 0) {
+            WARN("get_string for nodatavalues: failed");
+            return enif_make_badarg(env);
+        }
+        LOG("correctedDataset: %p, with nodatavalue: %s", correctedDataset, nodatavalues);
+        if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", (const char*)nodatavalues, NULL)) {
+            return enif_raise_exception(env, enif_make_string(env, "fail to set metadata", ERL_NIF_LATIN1));
+        }
     }
-    GDALClose(warpedDataset->warped_input_dataset);
+
+    GDALClose(warpedDataset->warped_input_dataset);  // ???
     warpedDataset->warped_input_dataset = correctedDataset;
     strncpy(warpedDataset->vmfilename, filename, sizeof(warpedDataset->vmfilename));
     return argv[0];
@@ -501,8 +521,9 @@ static ErlNifFunc nif_funcs[] = {
     {"has_nodata",     1, has_nodata, 0},
     {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"correct_dataset",3, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"correct_dataset",2, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"has_alpha_band", 1, has_alpha_band, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"nb_data_bands",  1, nb_data_bands, 0},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
     {"tile_bounds",    4, tile_bounds, 0},

@@ -3,6 +3,7 @@
 c_src/env.mk
 erl_crash.dump
 config/extra.config
+*.vrt
 *.sw[op]
 *.so
 *.beam
