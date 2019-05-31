@@ -25,7 +25,16 @@ init() ->
                 Path ->
                       Path
               end,
-    erlang:load_nif(filename:join(PrivDir, "gdalnif2tiles"), 0).
+    ok = erlang:load_nif(filename:join(PrivDir, "gdalnif2tiles"), 0),
+    Cref = atomics:new(1, [{signed, false}]),
+    persistent_term:put(?MODULE, Cref).
+
+unique_id() ->
+    Cref = persistent_term:get(?MODULE),
+    atomics:add_get(Cref, 1, 1).
+
+tmp_vrt_filename(Filename) ->
+    lists:flatten(io_lib:format("~ts_~p.vrt", [Filename, unique_id()])).
 
 -spec create_profile('geodetic', 'tmscompatible') -> reference().
 create_profile(_Profile, _Tmscompatible) ->
