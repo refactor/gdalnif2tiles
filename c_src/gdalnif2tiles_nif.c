@@ -33,24 +33,6 @@ void profile_dtor(ErlNifEnv* env, void* obj) {
     }
 }
 
-static ErlNifResourceType* gdalDatasetResType;
-
-void dataset_dtor(ErlNifEnv* env, void* obj) {
-    MyGDALDataset *pGDALDataset = (MyGDALDataset*)obj;
-    LOG("destroy pGDALDataset -> %p, handle -> %p", pGDALDataset, pGDALDataset->handle);
-    if (pGDALDataset) {
-        if (pGDALDataset->handle != NULL) {
-            LOG("close dataset: %p", pGDALDataset->handle);
-            GDALClose(pGDALDataset->handle);
-            pGDALDataset->handle = NULL;
-        }
-        if (pGDALDataset->inputSRS != NULL) {
-            OSRDestroySpatialReference(pGDALDataset->inputSRS);
-            pGDALDataset->inputSRS = NULL;
-        }
-    }
-}
-
 static ErlNifResourceType* warpedDatasetResType;
 
 static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
@@ -104,75 +86,7 @@ ENIF(create_profile) {
     return res;
 }
 
-ENIF(open_file) {
-    char filename[128] = {0};
-    if (!enif_get_string(env, argv[0], filename, sizeof(filename), ERL_NIF_LATIN1)) {
-        return enif_raise_exception(env,
-            enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
-    }
-    LOG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
-    LOG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
-    GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
-    LOG("hDataset -> %p", hDataset);
-    if (hDataset == NULL) {
-        return enif_raise_exception(env,
-            enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
-    }
-    MyGDALDataset *pGDALDataset = enif_alloc_resource(gdalDatasetResType, sizeof(*pGDALDataset));
-    *pGDALDataset = (MyGDALDataset) { 0 };
-    LOG("open success: res -> %p, handle -> %p", pGDALDataset, hDataset);
-    ERL_NIF_TERM res = enif_make_resource(env, pGDALDataset);
-    enif_release_resource(pGDALDataset);    // now you can quit by anyway, with GC no need to GDALClose explicitly
-    *pGDALDataset = (MyGDALDataset) {
-        .handle = hDataset,
-        .rasterWidth  = GDALGetRasterXSize(hDataset),
-        .rasterHeight = GDALGetRasterYSize(hDataset),
-        .rasterCount  = GDALGetRasterCount(hDataset),
-    };
-    if (pGDALDataset->rasterCount == 0) {
-        WARN("Input file '%s' has no raster band", filename);
-        return enif_raise_exception(env, enif_make_string(env, "Input file has no raster band", ERL_NIF_LATIN1));
-    }
-    GDALRasterBandH hBand = GDALGetRasterBand(hDataset, 1);
-    if (GDALGetRasterColorTable(hBand) != NULL) {
-        WARN("Please convert this file to RGB/RGBA by: gdal_translate -of vrt -expand rgba %s temp.vrt", filename);
-        WARN("then run: gdal2tiles temp.vrt");
-        return enif_raise_exception(env,
-                enif_make_string(env, "cannot do color table", ERL_NIF_LATIN1));
-    }
-
-    double adfGeoTransform[6];
-    if (GDALGetGeoTransform(hDataset, adfGeoTransform) == CE_None) {
-        if (adfGeoTransform[2] != 0.0 || adfGeoTransform[4] != 0.0) {
-     //       GDALClose(hDataset);
-            return enif_raise_exception(env, 
-                    enif_make_tuple2(env, enif_make_atom(env, "not_support"),
-                        enif_make_string(env, "Georeference of the raster contains rotation or skew", ERL_NIF_LATIN1)));
-        }
-    }
-
-    pGDALDataset->originX = adfGeoTransform[0];
-    pGDALDataset->originY = adfGeoTransform[3];
-    pGDALDataset->pixelWidth = adfGeoTransform[1];
-    pGDALDataset->pixelHeight = adfGeoTransform[5];
-    LOG("coeff[2]: %f, coeff[4]: %f", adfGeoTransform[2],adfGeoTransform[4]);
-    
-    // setup_input_srs FROM input file:
-    const char* proj = GDALGetProjectionRef(pGDALDataset->handle);
-    OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
-    if (proj == NULL || OGRERR_NONE != OSRSetFromUserInput(fileSRS, proj)) {
-    //    GDALClose(hDataset);
-        OSRDestroySpatialReference(fileSRS);
-        return enif_raise_exception(env,
-                enif_make_string(env, "NO spatial reference found", ERL_NIF_LATIN1));
-    }
-    //if (OSRSetAxisMappingStrategy) OSRSetAxisMappingStrategy(fileSRS, OAMS_TRADITIONAL_GIS_ORDER);
-    pGDALDataset->inputSRS = fileSRS;
-
-    return res;
-}
-
-ERL_NIF_TERM extract_nodatavalues(ErlNifEnv *env, GDALDatasetH hDataset) {
+nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
     int rasterCount = GDALGetRasterCount(hDataset);
     // setup_no_data_values FROM inputfile:
     nodata_list *nodata = (nodata_list*) enif_alloc(sizeof(*nodata) + rasterCount*sizeof(double));
@@ -184,39 +98,30 @@ ERL_NIF_TERM extract_nodatavalues(ErlNifEnv *env, GDALDatasetH hDataset) {
         LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
         if (!successFlag) {
             WARN("band.%d: NOT sucess get NODATA ... BUT get this: %f", i, nodata->nodata[i - 1]);
-            return enif_make_atom(env, "none");
+            enif_free(nodata);
+            return NULL;
         }
     }
-    char nodatavalues[128] = {0};
-    cat_novalues(nodata, nodatavalues, sizeof(nodatavalues));
-    LOG("nodatavalues: %s", nodatavalues);
-
-    enif_free(nodata);
-    ERL_NIF_TERM res = enif_make_string(env, nodatavalues, ERL_NIF_LATIN1);
-    return res;
+    return nodata;
 }
 
 ENIF(has_nodata) {
-    MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+    const WarpedDataset *wGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
-    ERL_NIF_TERM ret = extract_nodatavalues(env, pGDALDataset->handle);
-    if (enif_is_atom(env, ret))
-        return enif_raise_exception(env, ret);
-    return ret;    
+    if (wGDALDataset->nodata == NULL)
+        return ATOM_FALSE;
+    return ATOM_TRUE;
 }
 
 ENIF(nb_data_bands) {
-    const MyGDALDataset *pGDALDataset = NULL;
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset) &&
-        !enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
-    if (pGDALDataset) hDataset = pGDALDataset->handle;
 
     const int bandNo = 1;
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
@@ -230,15 +135,12 @@ ENIF(nb_data_bands) {
 }
 
 ENIF(info) {
-    const MyGDALDataset *pGDALDataset = NULL;
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset) &&
-        !enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
-    if (pGDALDataset) hDataset = pGDALDataset->handle;
 
     LOG("info success, hDataset -> %p", hDataset);
     GDALDriverH hDriver = GDALGetDatasetDriver(hDataset);
@@ -279,29 +181,23 @@ ENIF(info) {
                 &res);
     }
                     
-    ERL_NIF_TERM ndv = extract_nodatavalues(env, hDataset);
-    if (enif_is_atom(env, ndv)) {
-        WARN("there is NO nodatavalues...");
-        return res;
+    if (wGDALDataset->nodata) {
+        char nodatavalues[128] = {0};
+        cat_novalues(wGDALDataset->nodata, nodatavalues, sizeof(nodatavalues));
+        enif_make_map_put(env, res, enif_make_atom(env, "nodataValues"),
+                enif_make_string(env, nodatavalues, ERL_NIF_LATIN1),
+                &res);
     }
-    LOG("pass...");
-
-    enif_make_map_put(env, res, enif_make_atom(env, "nodataValues"),
-            ndv,
-            &res);
     return res;
 }
 
 ENIF(band_info) {
-    const MyGDALDataset *pGDALDataset = NULL;
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset) &&
-        !enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
-    if (pGDALDataset) hDataset = pGDALDataset->handle;
 
     int bandNo = 0;
     if (!enif_get_int(env, argv[1], &bandNo)) {
@@ -348,25 +244,40 @@ ENIF(band_info) {
     return res;
 }
 
-static inline void reprojectTo(WarpedDataset *warpedDataset, const MyGDALDataset *pGDALDataset, const WorldProfile *destProfile) {
-    warpedDataset->warped_input_dataset = reprojectDataset(pGDALDataset, destProfile->output_srs);
-    if (warpedDataset->warped_input_dataset != pGDALDataset->handle) {
-        warpedDataset->warped = true;
+static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDALDatasetH ds, const WorldProfile *destProfile) {
+    warpedDataset->warped_input_dataset = reprojectDataset(ds, destProfile->output_srs);
+    if (warpedDataset->warped_input_dataset == NULL) {
+        return NULL;
     }
 
-    char** files = GDALGetFileList(pGDALDataset->handle);
+    if (warpedDataset->warped_input_dataset != ds) {
+        warpedDataset->warped = true;
+    }
+    warpedDataset->nodata = extract_nodatavalues(ds);
+
+    char** files = GDALGetFileList(ds);
     while (*files) LOG("GDALGetFileList: %s", *files++);
 
     warpedDataset->profile = destProfile;
     enif_keep_resource((void*)destProfile);
+    return warpedDataset;
 }
 
 ENIF(reproj_with_profile) {
-    MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
-        WARN("fail to get GDAL dataset resource");
-        return enif_make_badarg(env);
+    char filename[128] = {0};
+    if (!enif_get_string(env, argv[0], filename, sizeof(filename), ERL_NIF_LATIN1))
+        return enif_raise_exception(env,
+            enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
+    
+    LOG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
+    LOG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
+    GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
+    LOG("hDataset -> %p", hDataset);
+    if (hDataset == NULL) {
+        return enif_raise_exception(env,
+            enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
+
     WorldProfile *profile = NULL;
     if (!enif_get_resource(env, argv[1], profileResType, (void**)&profile)) {
         return enif_make_badarg(env);
@@ -374,7 +285,9 @@ ENIF(reproj_with_profile) {
 
     WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
     *warpedDataset = (WarpedDataset) { 0 };
-    reprojectTo(warpedDataset, pGDALDataset, profile);
+    if (reprojectTo(warpedDataset, hDataset, profile) == NULL) 
+        return enif_raise_exception(env,
+            enif_make_string(env, "SpatialReference error", ERL_NIF_LATIN1));
     ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
     enif_release_resource(warpedDataset);
     return res;
@@ -403,14 +316,12 @@ ENIF(correct_dataset) {
     // the memory file system handler will take ownership of vrt_string, freeing it when the file is deleted.
     GDALDatasetH correctedDataset = GDALOpen(filename, GA_ReadOnly);
 
-    if (argc == 3) {
+    if (warpedDataset->nodata != NULL) {
         char nodatavalues[128] = {0};
-        if (enif_get_string(env, argv[2], nodatavalues, sizeof(nodatavalues), ERL_NIF_LATIN1) <= 0) {
-            WARN("get_string for nodatavalues: failed");
-            return enif_make_badarg(env);
-        }
-        LOG("correctedDataset: %p, with nodatavalue: %s", correctedDataset, nodatavalues);
+        cat_novalues(warpedDataset->nodata, nodatavalues, sizeof(nodatavalues));
         if (CE_None != GDALSetMetadataItem(correctedDataset, "NODATA_VALUES", (const char*)nodatavalues, NULL)) {
+            VSIUnlink(filename);
+            GDALClose(correctedDataset);
             return enif_raise_exception(env, enif_make_string(env, "fail to set metadata", ERL_NIF_LATIN1));
         }
     }
@@ -461,8 +372,9 @@ ENIF(tile_bounds) {
 }
 
 ENIF(get_pixel) {
-    MyGDALDataset *pGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], gdalDatasetResType, (void**)&pGDALDataset)) {
+    WarpedDataset *warpedDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
+        WARN("fail to get warped dataset");
         return enif_make_badarg(env);
     }
     int nXOff;
@@ -473,21 +385,21 @@ ENIF(get_pixel) {
     if (!enif_get_int(env, argv[2], &nYOff)) {
         return enif_make_badarg(env);
     }
-    GDALDatasetH hDataset = pGDALDataset->handle;
+    GDALDatasetH hDataset = warpedDataset->warped_input_dataset;
     int bandNo = 1;
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
 
-    float pixelValue;
+    int8_t pixelValue;
     CPLErr res = GDALRasterIO(hBand, GF_Read,
             nXOff, nYOff, 1, 1,
             &pixelValue, 1, 1,
-            GDT_Float32,
+            GDT_Byte,
             0,0);
     if (res != CE_None) {
         return enif_raise_exception(env,
                 enif_make_string(env, "raster io error", ERL_NIF_LATIN1));
     }
-    return enif_make_double(env, pixelValue);
+    return enif_make_int(env, pixelValue);
 }
 
 static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
@@ -504,8 +416,6 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 
     profileResType = enif_open_resource_type(env, NULL, "worldProfile", profile_dtor,
             ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
-    gdalDatasetResType = enif_open_resource_type(env, NULL, "gdalDataset", dataset_dtor,
-            ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
     warpedDatasetResType = enif_open_resource_type(env, NULL, "warpedDataset", warped_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
 
     ATOM_OK = enif_make_atom(env, "ok");
@@ -517,10 +427,8 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 static ErlNifFunc nif_funcs[] = {
     {"create_profile", 1, create_profile, 0},
     {"create_profile", 2, create_profile, 0},
-    {"open_file",      1, open_file, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"has_nodata",     1, has_nodata, 0},
     {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"correct_dataset",3, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"correct_dataset",2, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"nb_data_bands",  1, nb_data_bands, 0},

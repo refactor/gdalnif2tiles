@@ -27,19 +27,6 @@ typedef struct nodata_list {
 /**
  * orginal GDAL dataset
  */
-typedef struct MyGDALDataset {
-    GDALDatasetH handle;
-    OGRSpatialReferenceH inputSRS;
-    int srid;
-    int rasterCount;
-    int rasterWidth, rasterHeight;
-    double originX, originY;
-    double pixelWidth, pixelHeight;
-    double minBoundX, maxBoundX;
-    double minBoundY, maxBoundY;
-    double minBoundZ, maxBoundZ;
-} MyGDALDataset;
-
 /**
  * warped GDAL dataset: for reprojection & some fix for nodatavalue
  *   reproject according world-profile: MERCATOR or GEODETIC
@@ -50,6 +37,7 @@ typedef struct WarpedDataset {
 
     const WorldProfile *profile;
     char vmfilename[64];
+    nodata_list *nodata;
 } WarpedDataset;
 
 static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
@@ -62,11 +50,19 @@ static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
     }
 }
 
-static inline GDALDatasetH reprojectDataset(const MyGDALDataset* pGDALDataset, OGRSpatialReferenceH dstSRS) {
-    GDALDatasetH hSrcDS = pGDALDataset->handle;
+static inline GDALDatasetH reprojectDataset(const GDALDatasetH ds, OGRSpatialReferenceH dstSRS) {
+    GDALDatasetH hSrcDS = ds;
     GDALDatasetH hDstDS = NULL;
-    if (OSRIsSame(pGDALDataset->inputSRS, dstSRS)) {
-        hDstDS = pGDALDataset->handle;
+
+    const char* proj = GDALGetProjectionRef(ds);
+    OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
+    if (proj == NULL || OGRERR_NONE != OSRSetFromUserInput(fileSRS, proj)) {
+    //    GDALClose(hDataset);
+        OSRDestroySpatialReference(fileSRS);
+        return NULL;
+    }
+    if (OSRIsSame(fileSRS, dstSRS)) {
+        hDstDS = ds;
     }
     else {
         char *pszDstWKT = NULL;

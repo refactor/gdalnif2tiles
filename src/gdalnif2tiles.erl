@@ -4,13 +4,14 @@
 
 -export([create_profile/1]).
 -export([create_profile/2]).
--export([open_file/1]).
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
--export([warp_with_profile/2]).
+-export([open_to/2]).
 -export([tile_bounds/4]).
 
+-export([unique_id/0]).
+-export([tmp_vrt_filename/1]).
 -export([nb_data_bands/1]).
 -export([reproj_with_profile/2]).
 -export([get_xmlvrt/1]).
@@ -44,10 +45,6 @@ create_profile(_Profile, _Tmscompatible) ->
 create_profile(_Profile) ->
     erlang:nif_error(notfound).
 
--spec open_file(file:filename()) -> reference().
-open_file(_File) ->
-    erlang:nif_error(notfound).
-
 -spec info(reference()) -> map().
 info(_Dataset) ->
     erlang:nif_error(notfound).
@@ -60,16 +57,15 @@ band_info(_Dataset, _BandNo) ->
 get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).
 
--spec warp_with_profile(reference(), reference()) -> reference().
-warp_with_profile(Dataset, Profile) ->
-    WDataset = reproj_with_profile(Dataset, Profile),
-    try has_nodata(Dataset) of
-        Nodata ->
-            ?LOG_DEBUG("Nodata: ~ts", [Nodata]),
-            update_no_data_values(WDataset, Nodata)
-    catch
-        error:Reason ->
-            ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: ~p", [Reason]),
+-spec open_to(reference(), reference()) -> reference().
+open_to(Filename, Profile) ->
+    WDataset = reproj_with_profile(Filename, Profile),
+    case has_nodata(WDataset) of
+        true ->
+            ?LOG_DEBUG("Nodata: found"),
+            update_no_data_values(WDataset);
+        false ->
+            ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: no NODATA"),
             update_alpha_value_for_non_alpha_inputs(WDataset)
     end.
 
@@ -83,7 +79,7 @@ reproj_with_profile(_Dataset, _Profile) ->
     erlang:nif_error(notfound).
 
 %% @private
--spec has_nodata(reference()) -> string() | none.
+-spec has_nodata(reference()) -> boolean().
 has_nodata(_Dataset) ->
     erlang:nif_error(notfound).
 
@@ -93,15 +89,15 @@ get_xmlvrt(_WDataset) ->
     erlang:nif_error(notfound).
 
 %% @private
--spec update_no_data_values(reference(), string()) -> reference().
-update_no_data_values(WDataset, Nodata) ->
+-spec update_no_data_values(reference()) -> reference().
+update_no_data_values(WDataset) ->
     Str = get_xmlvrt(WDataset),
     {XmlDoc,_} = xmerl_scan:string(Str),
     TL = xmerl_lib:simplify_element(XmlDoc),
     NewTL = add_gdal_warp_options_to_string(TL),
     % rm header: "<?xml version=\"1.0\"?>"
     CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
-    correct_dataset(WDataset, CorrectedStr, Nodata).
+    correct_dataset(WDataset, CorrectedStr).
 
 %% @private
 add_gdal_warp_options_to_string({Tag, Attributes, Content}) ->
@@ -164,11 +160,6 @@ add_dstalpha_option(Band,  Content) ->
 build_AlphaBand(Band) ->
     BandStr = integer_to_list(Band + 1),
     {'VRTRasterBand', [{dataType,"Byte"},{'band',BandStr},{subClass,"VRTWarpedRasterBand"}], ["\n    ",{'ColorInterp', [], ["Alpha"]},"\n  "]}.
-
-%% @private
--spec correct_dataset(reference(), binary(), binary()) -> reference().
-correct_dataset(_Dataset, _VrtStr, _Nodata) ->
-    erlang:nif_error(notfound).
 
 %% @private
 -spec correct_dataset(reference(), binary()) -> reference().
