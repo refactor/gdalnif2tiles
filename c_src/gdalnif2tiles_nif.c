@@ -23,15 +23,8 @@ static ERL_NIF_TERM ATOM_OK;
 static ERL_NIF_TERM ATOM_TRUE;
 static ERL_NIF_TERM ATOM_FALSE;
 
-static ErlNifResourceType* profileResType;
-
-void profile_dtor(ErlNifEnv* env, void* obj) {
-    WorldProfile *profile = (WorldProfile*)obj;
-    if (profile->output_srs != NULL) {
-        OSRDestroySpatialReference(profile->output_srs);
-        profile->output_srs = NULL;
-    }
-}
+static ERL_NIF_TERM ATOM_PROFILE_MERCATOR;
+static ERL_NIF_TERM ATOM_PROFILE_GEODETIC;
 
 static ErlNifResourceType* warpedDatasetResType;
 
@@ -47,43 +40,10 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
         LOG("delete memFile: %s", warpedDataset->vmfilename);
         VSIUnlink(warpedDataset->vmfilename);
     }
-    if (warpedDataset->profile) {
-        LOG("release warped profile: %p", warpedDataset->profile);
-        enif_release_resource((void*)warpedDataset->profile);
-        warpedDataset->profile = NULL;
+    if (warpedDataset->output_srs) {
+        OSRDestroySpatialReference(warpedDataset->output_srs);
+        warpedDataset->output_srs = NULL;
     }
-}
-
-ENIF(create_profile) {
-    LOG("argv: %T", argv[0]);
-    char buf[32] = {0};
-    if (!enif_get_atom(env, argv[0], buf, sizeof(buf), ERL_NIF_LATIN1)) {
-        return enif_make_badarg(env);
-    }
-
-    profile_type profileType = PROFILE_TYPE_COUNT;
-    for (int i=0; i<PROFILE_TYPE_COUNT; ++i) {
-        if (strncasecmp(WORLD_PROFILE_TYPES[i], buf, sizeof(buf)) == 0) {
-            profileType = i;
-            break;
-        }
-    }
-    if (profileType == PROFILE_TYPE_COUNT) {
-        WARN("unknow profile_type: %s", buf);
-        return enif_make_badarg(env);
-    }
-
-    WorldProfile *profile = enif_alloc_resource(profileResType, sizeof(*profile));
-    *profile = (WorldProfile) { 0 };
-    if (argc == 2) {
-        LOG("TMS compatible...");
-        profile->tmscompatible = true;
-    }
-
-    initProfile(profileType, profile);
-    ERL_NIF_TERM res = enif_make_resource(env, profile);
-    enif_release_resource(profile);
-    return res;
 }
 
 nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
@@ -103,6 +63,16 @@ nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
         }
     }
     return nodata;
+}
+
+ENIF(is_warped) {
+    const WarpedDataset *wGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    if (wGDALDataset->warped)
+        return ATOM_TRUE;
+    return ATOM_FALSE;
 }
 
 ENIF(has_nodata) {
@@ -244,22 +214,36 @@ ENIF(band_info) {
     return res;
 }
 
-static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDALDatasetH ds, const WorldProfile *destProfile) {
-    warpedDataset->warped_input_dataset = reprojectDataset(ds, destProfile->output_srs);
+static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDALDatasetH ds, const ERL_NIF_TERM profile) {
+    OGRSpatialReferenceH output_srs = OSRNewSpatialReference(NULL);
+    if (enif_compare(ATOM_PROFILE_MERCATOR, profile) == 0) {
+        OSRImportFromEPSG(output_srs, 3857);
+    }
+    else if (enif_compare(ATOM_PROFILE_GEODETIC, profile) == 0) {
+        OSRImportFromEPSG(output_srs, 4326);
+    }
+    else {
+        WARN("unknow profile: %T", profile);
+        OSRDestroySpatialReference(output_srs);
+        return NULL;
+    }
+
+    warpedDataset->warped_input_dataset = reprojectDataset(ds, output_srs);
     if (warpedDataset->warped_input_dataset == NULL) {
+        OSRDestroySpatialReference(output_srs);
         return NULL;
     }
 
     if (warpedDataset->warped_input_dataset != ds) {
         warpedDataset->warped = true;
     }
+    LOG("warped: %d", warpedDataset->warped);
     warpedDataset->nodata = extract_nodatavalues(ds);
 
     char** files = GDALGetFileList(ds);
     while (*files) LOG("GDALGetFileList: %s", *files++);
 
-    warpedDataset->profile = destProfile;
-    enif_keep_resource((void*)destProfile);
+    warpedDataset->output_srs = output_srs;
     return warpedDataset;
 }
 
@@ -278,11 +262,9 @@ ENIF(reproj_with_profile) {
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
     }
 
-    WorldProfile *profile = NULL;
-    if (!enif_get_resource(env, argv[1], profileResType, (void**)&profile)) {
-        return enif_make_badarg(env);
-    }
+    ERL_NIF_TERM profile = argv[1];
 
+    // TODO: for resource leak here
     WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
     *warpedDataset = (WarpedDataset) { 0 };
     if (reprojectTo(warpedDataset, hDataset, profile) == NULL) 
@@ -345,32 +327,6 @@ ENIF(get_xmlvrt) {
     return enif_make_string(env, md[0], ERL_NIF_LATIN1);
 }
 
-ENIF(tile_bounds) {
-    WorldProfile *profile = NULL;
-    if (!enif_get_resource(env, argv[0], profileResType, (void**)&profile)) {
-        return enif_make_badarg(env);
-    }
-    int tx;
-    if (!enif_get_int(env, argv[1], &tx)) {
-        return enif_make_badarg(env);
-    }
-    int ty;
-    if (!enif_get_int(env, argv[2], &ty)) {
-        return enif_make_badarg(env);
-    }
-    int tz;
-    if (!enif_get_int(env, argv[3], &tz)) {
-        return enif_make_badarg(env);
-    }
-    double bounds[4] = {0};
-    tileBounds(profile, tx, ty, tz, bounds);
-    ERL_NIF_TERM bs[4];
-    for (int i=0; i<4; ++i) {
-        bs[i] = enif_make_double(env, bounds[i]);
-    }
-    return enif_make_tuple_from_array(env, bs, 4);
-}
-
 ENIF(get_pixel) {
     WarpedDataset *warpedDataset = NULL;
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
@@ -414,19 +370,20 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     res = GDALCheckVersion(3, 0, "what the hell...");
     LOG("check 3.0 version: %d", res);
 
-    profileResType = enif_open_resource_type(env, NULL, "worldProfile", profile_dtor,
-            ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
     warpedDatasetResType = enif_open_resource_type(env, NULL, "warpedDataset", warped_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
 
     ATOM_OK = enif_make_atom(env, "ok");
     ATOM_TRUE = enif_make_atom(env, "true");
     ATOM_FALSE = enif_make_atom(env, "false");
+
+    ATOM_PROFILE_MERCATOR = enif_make_atom(env, "mercator");
+    ATOM_PROFILE_GEODETIC = enif_make_atom(env, "geodetic");
+
     return 0;
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"create_profile", 1, create_profile, 0},
-    {"create_profile", 2, create_profile, 0},
+    {"is_warped",      1, is_warped, 0},
     {"has_nodata",     1, has_nodata, 0},
     {"reproj_with_profile", 2, reproj_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"correct_dataset",2, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
@@ -434,7 +391,6 @@ static ErlNifFunc nif_funcs[] = {
     {"nb_data_bands",  1, nb_data_bands, 0},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
-    {"tile_bounds",    4, tile_bounds, 0},
     {"get_pixel",      3, get_pixel, 0}
 };
 

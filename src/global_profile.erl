@@ -3,6 +3,7 @@
 -export([tile_minmax_zoom/2]).
 -export([zoom_extents_for/2]).
 
+-export([tile_bounds/4]).
 -export([output_bounds/1]).
 -export([units_to_tile/4]).
 
@@ -33,6 +34,14 @@ output_bounds(RasterInfo) ->
     %%  self.ominy = self.out_gt[3] + self.warped_input_dataset.RasterYSize * self.out_gt[5]
     OBminy = Omaxy + YSize * PixelYsize,
     #{ominx => OBminx, omaxx => OBmaxx, omaxy => OBmaxy, ominy => OBminy}.
+
+-spec tile_bounds(profile(), non_neg_integer(), non_neg_integer(), zoom_range()) -> {float(), float(), float(), float()}.
+tile_bounds(#{tileSize := TileSize} = Profile, TX, TY, TZ) ->
+    InitialResolution = initialResolution(Profile),
+    Resolution = resolution(InitialResolution, TZ),
+    {Xmin, Ymin} = pixels2units(TX * TileSize, TY * TileSize, Resolution, originShift(Profile)),
+    {Xmax, Ymax} = pixels2units((TX + 1) * TileSize, (TY + 1) * TileSize, Resolution, originShift(Profile)),
+    {Xmin, Ymin, Xmax, Ymax}.
 
 %% Returns tile for given mercator/geodetic coordinates
 %% unit: meters for Mercator; deg for Geodetic
@@ -94,6 +103,11 @@ zoom4pixelsize(InitialResolution, PixelSize, Z) ->
         zoom4pixelsize(InitialResolution, PixelSize, Z + 1)
     end.
 
+pixels2units(PX, PY, Resolution, {OriginShiftX, OriginShiftY}) ->
+    X = PX * Resolution - OriginShiftX,
+    Y = PY * Resolution - OriginShiftY,
+    {X, Y}.
+
 %% @private
 %% Converts EPSG:3857 to pyramid pixel coordinates in given zoom level
 -spec units2pixels(float(), float(), float(), {float(),float()}) -> {float(),float()}.
@@ -125,6 +139,8 @@ initialResolution(#{profile := mercator, tileSize := TileSize}) ->
 initialResolution(#{profile := geodetic, tileSize := TileSize} = Profile) ->
     case maps:get(tmscompatible, Profile, none) of
         none ->
+            360.0 / TileSize;
+        false ->
             360.0 / TileSize;
         _ ->
             180.0 / TileSize

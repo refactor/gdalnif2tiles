@@ -11,8 +11,6 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#include "global_profile.h"
-
 #include "mylog.h"
 
 /*
@@ -35,7 +33,8 @@ typedef struct WarpedDataset {
     bool warped;    // tag to determine GC
     GDALDatasetH warped_input_dataset;
 
-    const WorldProfile *profile;
+    OGRSpatialReferenceH output_srs;
+
     char vmfilename[64];
     nodata_list *nodata;
 } WarpedDataset;
@@ -67,14 +66,38 @@ static inline GDALDatasetH reprojectDataset(const GDALDatasetH ds, OGRSpatialRef
     else {
         char *pszDstWKT = NULL;
         OSRExportToWkt(dstSRS, &pszDstWKT);
-
+        LOG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose)");
         hDstDS = GDALAutoCreateWarpedVRT(hSrcDS,
                                          GDALGetProjectionRef(hSrcDS), pszDstWKT,
                                          GRA_NearestNeighbour,
                                          0.0,
                                          NULL);
+        //hDstDS.GetDriver().CreateCopy("tiles.vrt", to_dataset)
         CPLFree(pszDstWKT);
     }
     return hDstDS;
+}
+
+static inline const char* rasterDataType(GDALDataType datatype) {
+    switch (datatype) {
+        case GDT_Float32:
+            return "float32";
+        case GDT_Float64:
+            return "float64";
+        case GDT_Byte:
+            return "byte";
+        case GDT_UInt16:
+            return "uint16";
+        case GDT_Int16:
+            return "int16";
+        case GDT_UInt32:
+            return "uint32";
+        case GDT_Int32:
+            return "int32";
+        case GDT_Unknown:
+            return "unknow";
+        default:
+            return "complex ignored";
+    }
 }
 

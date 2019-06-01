@@ -2,13 +2,10 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([create_profile/1]).
--export([create_profile/2]).
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
 -export([open_to/2]).
--export([tile_bounds/4]).
 
 -export([unique_id/0]).
 -export([tmp_vrt_filename/1]).
@@ -37,14 +34,6 @@ unique_id() ->
 tmp_vrt_filename(Filename) ->
     lists:flatten(io_lib:format("~ts_~p.vrt", [Filename, unique_id()])).
 
--spec create_profile('geodetic', 'tmscompatible') -> reference().
-create_profile(_Profile, _Tmscompatible) ->
-    erlang:nif_error(notfound).
-
--spec create_profile('mercator'|'geodetic') -> reference().
-create_profile(_Profile) ->
-    erlang:nif_error(notfound).
-
 -spec info(reference()) -> map().
 info(_Dataset) ->
     erlang:nif_error(notfound).
@@ -60,18 +49,20 @@ get_pixel(_Dataset, _X, _Y) ->
 -spec open_to(reference(), reference()) -> reference().
 open_to(Filename, Profile) ->
     WDataset = reproj_with_profile(Filename, Profile),
-    case has_nodata(WDataset) of
-        true ->
-            ?LOG_DEBUG("Nodata: found"),
-            update_no_data_values(WDataset);
-        false ->
-            ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: no NODATA"),
-            update_alpha_value_for_non_alpha_inputs(WDataset)
+    Warped = is_warped(WDataset),
+    if Warped ->
+        case has_nodata(WDataset) of
+            true ->
+                ?LOG_DEBUG("Nodata: found"),
+                update_no_data_values(WDataset);
+            false ->
+                ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: no NODATA"),
+                update_alpha_value_for_non_alpha_inputs(WDataset)
+        end;
+    true ->
+        ?LOG_WARNING("s_srs == d_srs, no warped dataset"),
+        WDataset
     end.
-
--spec tile_bounds(reference(), non_neg_integer(), non_neg_integer(), 0..24) -> {float(),float(),float(),float()}.
-tile_bounds(_Dataset, _tx, _ty, _tz) ->
-    erlang:nif_error(notfound).
 
 %% @private
 -spec reproj_with_profile(reference(), reference()) -> reference().
@@ -81,6 +72,11 @@ reproj_with_profile(_Dataset, _Profile) ->
 %% @private
 -spec has_nodata(reference()) -> boolean().
 has_nodata(_Dataset) ->
+    erlang:nif_error(notfound).
+
+%% @private
+-spec is_warped(reference()) -> boolean().
+is_warped(_WDataset) ->
     erlang:nif_error(notfound).
 
 %% @private
