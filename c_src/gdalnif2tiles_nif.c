@@ -215,6 +215,7 @@ ENIF(band_info) {
 }
 
 static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDALDatasetH ds, const ERL_NIF_TERM profile) {
+    *warpedDataset = (WarpedDataset) { 0 };
     OGRSpatialReferenceH output_srs = OSRNewSpatialReference(NULL);
     if (enif_compare(ATOM_PROFILE_MERCATOR, profile) == 0) {
         OSRImportFromEPSG(output_srs, 3857);
@@ -265,11 +266,13 @@ ENIF(reproj_with_profile) {
     ERL_NIF_TERM profile = argv[1];
 
     // TODO: for resource leak here
-    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
-    *warpedDataset = (WarpedDataset) { 0 };
-    if (reprojectTo(warpedDataset, hDataset, profile) == NULL) 
+    WarpedDataset wd;
+    if (reprojectTo(&wd, hDataset, profile) == NULL) 
         return enif_raise_exception(env,
             enif_make_string(env, "SpatialReference error", ERL_NIF_LATIN1));
+
+    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
+    *warpedDataset = wd;
     ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
     enif_release_resource(warpedDataset);
     return res;

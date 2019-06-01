@@ -35,7 +35,7 @@ typedef struct WarpedDataset {
 
     OGRSpatialReferenceH output_srs;
 
-    char vmfilename[64];
+    char vmfilename[128];
     nodata_list *nodata;
 } WarpedDataset;
 
