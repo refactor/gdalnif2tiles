@@ -1,5 +1,6 @@
 #pragma once
 
+#include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -50,17 +51,17 @@ void initProfile(const profile_type profileType, WorldProfile *profile) {
     //if (OSRSetAxisMappingStrategy) OSRSetAxisMappingStrategy(output_srs, OAMS_TRADITIONAL_GIS_ORDER);
     switch(profileType) {
         case MERCATOR:
+            OSRImportFromEPSG(output_srs, 3857);
             initResolution = 2 * M_PI * 6378137 / tileSize;
             originShift = 2 * M_PI * 6378137 / 2.0;
-            OSRImportFromEPSG(output_srs, 3857);
             profile->initialResolution = initResolution;
             break;
         case GEODETIC:
+            OSRImportFromEPSG(output_srs, 4326);
             if (profile->tmscompatible)
                 initResolution = 180.0 / tileSize;  // OSGeo TMS spec: 2 tiles @ level 0
             else
                 initResolution = 360.0 / tileSize;  // OpenLayers, WMTS: 1 tiles @ level 0
-            OSRImportFromEPSG(output_srs, 4326);
             profile->resFact = initResolution;
             break;
         default:
