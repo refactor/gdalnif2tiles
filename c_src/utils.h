@@ -64,16 +64,16 @@ static inline GDALDatasetH reprojectDataset(const GDALDatasetH ds, OGRSpatialRef
         hDstDS = ds;
     }
     else {
-        char *pszDstWKT = NULL;
-        OSRExportToWkt(dstSRS, &pszDstWKT);
+        char *pszDstSRSWKT = NULL;
+        OSRExportToWkt(dstSRS, &pszDstSRSWKT);
         LOG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose)");
         hDstDS = GDALAutoCreateWarpedVRT(hSrcDS,
-                                         GDALGetProjectionRef(hSrcDS), pszDstWKT,
+                                         GDALGetProjectionRef(hSrcDS), pszDstSRSWKT,
                                          GRA_NearestNeighbour,
                                          0.0,
                                          NULL);
         //hDstDS.GetDriver().CreateCopy("tiles.vrt", to_dataset)
-        CPLFree(pszDstWKT);
+        CPLFree(pszDstSRSWKT);
     }
     return hDstDS;
 }

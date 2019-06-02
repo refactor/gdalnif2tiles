@@ -10,7 +10,7 @@
 -export([unique_id/0]).
 -export([tmp_vrt_filename/1]).
 -export([nb_data_bands/1]).
--export([reproj_with_profile/2]).
+-export([open_with_profile/2]).
 -export([get_xmlvrt/1]).
 
 -on_load(init/0).
@@ -48,7 +48,7 @@ get_pixel(_Dataset, _X, _Y) ->
 
 -spec open_to(reference(), reference()) -> reference().
 open_to(Filename, Profile) ->
-    WDataset = reproj_with_profile(Filename, Profile),
+    WDataset = open_with_profile(Filename, Profile),
     Warped = is_warped(WDataset),
     if Warped ->
         case has_nodata(WDataset) of
@@ -60,13 +60,17 @@ open_to(Filename, Profile) ->
                 update_alpha_value_for_non_alpha_inputs(WDataset)
         end;
     true ->
-        ?LOG_WARNING("s_srs == d_srs, no warped dataset"),
-        WDataset
+        ?LOG_INFO("s_srs == d_srs, no warped dataset, just copy a VRT dataset"),
+        create_vrt_copy(WDataset)
     end.
 
 %% @private
--spec reproj_with_profile(reference(), reference()) -> reference().
-reproj_with_profile(_Dataset, _Profile) ->
+create_vrt_copy(_WDataset) ->
+    erlang:nif_error(notfound).
+
+%% @private
+-spec open_with_profile(reference(), reference()) -> reference().
+open_with_profile(_Dataset, _Profile) ->
     erlang:nif_error(notfound).
 
 %% @private
