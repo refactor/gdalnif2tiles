@@ -1,21 +1,23 @@
 -module(global_profile).
 
 -export([init/1]).
--export([new/2]).
+-export([new_tile_job/2]).
 
 -export([tile_bounds/4]).
 -export([output_bounds/1]).
+-export([base_tiles_bounds/1]).
 
--ifdef(TEST).
 -export([units_to_tile/4]).
+-ifdef(TEST).
 -export([tile_minmax_zoom/2]).
 -export([zoom_extents_for/2]).
 -export([zoom4pixelsize/2]).
 -endif.
 
--type profile()    :: map().
--type raster_info():: map().
--type zoom_range() :: 0..32.
+-type tile_job_info() :: map().
+-type profile()       :: map().
+-type raster_info()   :: map().
+-type zoom_range()    :: 0..32.
 
 -export_type([profile/0]).
 -export_type([zoom_range/0]).
@@ -35,11 +37,17 @@ init(#{tileSize := TileSize} = P) ->
     P2 = maps:put(tiledriver, 'PNG', P1),
     P2.
 
--spec new(profile(), raster_info()) -> profile().
-new(Profile, RasterInfo) ->
-    {Zmin,Zmax} = global_profile:tile_minmax_zoom(Profile, RasterInfo),
-    ZoomExtents = global_profile:zoom_extents_for(Profile, RasterInfo),
-    Profile#{zmin => Zmin, zmax => Zmax, zoom_extents => ZoomExtents}.
+-spec new_tile_job(profile(), raster_info()) -> tile_job_info().
+new_tile_job(Profile, RasterInfo) ->
+    {Zmin,Zmax} = tile_minmax_zoom(Profile, RasterInfo),
+    ZoomExtents = zoom_extents_for(Profile, RasterInfo),
+    #{origin := O, pixelSize := PS} = RasterInfo,
+    Profile#{zmin => Zmin, zmax => Zmax, zoom_extents => ZoomExtents,
+             origin => O, pixelSize => PS}.
+
+base_tiles_bounds(Profile) ->
+    #{zmax := Zmax, zoom_extents := ZoomExtents} = Profile,
+    lists:nth(Zmax + 1, ZoomExtents).
 
 %% Output Bounds - coordinates in the output SRS
 -spec output_bounds(raster_info()) -> map().

@@ -13,6 +13,10 @@
 -export([open_with_profile/2]).
 -export([get_xmlvrt/1]).
 
+-type wdataset() :: reference().
+
+-export_type([wdataset/0]).
+
 -on_load(init/0).
 
 init() ->
@@ -34,20 +38,20 @@ unique_id() ->
 tmp_vrt_filename(Filename) ->
     lists:flatten(io_lib:format("~ts_~p.vrt", [Filename, unique_id()])).
 
--spec info(reference()) -> map().
+-spec info(wdataset()) -> global_profile:raster_info().
 info(_Dataset) ->
     erlang:nif_error(notfound).
 
--spec band_info(reference(), pos_integer()) -> map().
+-spec band_info(wdataset(), pos_integer()) -> map().
 band_info(_Dataset, _BandNo) ->
     erlang:nif_error(notfound).
 
--spec get_pixel(reference(), non_neg_integer(), non_neg_integer()) -> list(float()).
+-spec get_pixel(wdataset(), non_neg_integer(), non_neg_integer()) -> list(float()).
 get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).
 
--spec open_to(reference(), reference()) -> reference().
-open_to(Filename, Profile) ->
+-spec open_to(string(), global_profile:profile()) -> reference().
+open_to(Filename, #{profile := Profile}) ->
     WDataset = open_with_profile(Filename, Profile),
     Warped = is_warped(WDataset),
     if Warped ->
@@ -65,11 +69,12 @@ open_to(Filename, Profile) ->
     end.
 
 %% @private
+-spec create_vrt_copy(wdataset()) -> wdataset().
 create_vrt_copy(_WDataset) ->
     erlang:nif_error(notfound).
 
 %% @private
--spec open_with_profile(reference(), reference()) -> reference().
+-spec open_with_profile(wdataset(), mercator|geodetic) -> wdataset().
 open_with_profile(_Dataset, _Profile) ->
     erlang:nif_error(notfound).
 

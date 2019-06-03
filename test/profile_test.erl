@@ -208,3 +208,28 @@ zoom_extents_mercator_test() ->
         {1807464575, 1468238248, 1813432159, 1478773056}
     ],
     ?assertEqual(ExpectedZoomExtents, ZoomExtents).
+
+base_tiles_bounds_mercator_test() ->
+    RasterInfo = #{bandCount => 2,driverLongName => "Virtual Raster",
+             driverShortName => "VRT",
+             origin => {13692281.906532262,7558443.30498089},
+             pixelSize => {44.36788316627073,-44.36788316627073},
+             rasterHeight => 4431,rasterWidth => 2510},
+    Profile0 = global_profile:init(mercator),
+    Profile = global_profile:new_tile_job(Profile0, RasterInfo),
+    ZoomExtent = global_profile:base_tiles_bounds(Profile),
+    ExpectedZE = {1723, 1400, 1729, 1410},
+    ?assertEqual(ExpectedZE, ZoomExtent).
+
+base_tiles_bounds_geodetic_test() ->
+    RasterInfo = #{bandCount => 2,driverLongName => "Virtual Raster",
+             driverShortName => "VRT",
+             origin => {122.999861111111116,56.000138888888891},
+             pixelSize => {0.000277777777778,-0.000277777777778},
+             rasterHeight => 3601,
+             rasterWidth => 3601},
+    Profile0 = global_profile:init(geodetic),
+    Profile = global_profile:new_tile_job(Profile0, RasterInfo),
+    ZoomExtent = global_profile:base_tiles_bounds(Profile),
+    ExpectedZE = {3447, 1649, 3458, 1661},
+    ?assertEqual(ExpectedZE, ZoomExtent).
