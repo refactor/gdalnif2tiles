@@ -129,12 +129,12 @@ ENIF(info) {
             enif_make_string(env, GDALGetDriverLongName(hDriver), ERL_NIF_LATIN1),
             &res);
 
-    enif_make_map_put(env, res, enif_make_atom(env, "rasterWidth"),
-            enif_make_int(env, GDALGetRasterXSize(hDataset)),
+    enif_make_map_put(env, res, enif_make_atom(env, "rasterSize"),
+            enif_make_tuple2(env, 
+                enif_make_int(env, GDALGetRasterXSize(hDataset)),
+                enif_make_int(env, GDALGetRasterYSize(hDataset))),
             &res);
-    enif_make_map_put(env, res, enif_make_atom(env, "rasterHeight"),
-            enif_make_int(env, GDALGetRasterYSize(hDataset)),
-            &res);
+
     enif_make_map_put(env, res, enif_make_atom(env, "bandCount"),
             enif_make_int(env, GDALGetRasterCount(hDataset)),
             &res);

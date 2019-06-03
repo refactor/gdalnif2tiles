@@ -3,6 +3,7 @@
 -export([init/1]).
 -export([new_tile_job/2]).
 
+-export([geo_query/2]).
 -export([tile_bounds/4]).
 -export([output_bounds/1]).
 -export([base_tiles_bounds/1]).
@@ -15,10 +16,14 @@
 -endif.
 
 -type tile_job_info() :: map().
+-type tile_bounds()   :: {float(), float(), float(), float()}.
+-type pixel_window()  :: {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()}.
 -type profile()       :: map().
 -type raster_info()   :: map().
 -type zoom_range()    :: 0..32.
 
+-export_type([tile_job_info/0]).
+-export_type([tile_bounds/0]).
 -export_type([profile/0]).
 -export_type([zoom_range/0]).
 
@@ -45,14 +50,74 @@ new_tile_job(Profile, RasterInfo) ->
     Profile#{zmin => Zmin, zmax => Zmax, zoom_extents => ZoomExtents,
              origin => O, pixelSize => PS}.
 
+%% For given dataset and query in cartographic coordinates returns parameters for ReadRaster()
+%% in raster coordinates and x/y shifts (for border tiles).
+%% If the querysize is not given, the extent is returned in the native resolution of dataset ds.
+%%
+%% raises Gdal2TilesError if the dataset does not contain anything inside this geo_query
+-spec geo_query(raster_info(), tile_bounds()) -> {pixel_window(), pixel_window()}.
+geo_query(RasterInfo, TileBounds) ->
+    #{origin := O, pixelSize := PS, rasterSize := {RasterXSize, RasterYSize} } = RasterInfo,
+    {OX, OY} = O,
+    {PSX,PSY} = PS,
+    %% ulx, uly, lrx, lry
+    {ULx, LRy, LRx, ULy} = TileBounds,
+    RX = trunc((ULx - OX) / PSX + 0.001),
+    RY = trunc((ULy - OY) / PSY + 0.001),
+    RXSize = trunc((LRx - ULx) / PSX + 0.5),
+    RYSize = trunc((LRy - ULy) / PSY + 0.5),
+    {WXSize,WYSize} = 
+        case maps:get(querysize, RasterInfo, undefined) of
+            undefined ->
+                {RXSize, RYSize};  %% ignore querysize, TODO
+            QuerySize ->
+                {QuerySize, QuerySize}
+        end,
+    {NewRX, NewRXSize, WX, NewWXSize} = adjust_coordinate(RX, RXSize, WXSize, RasterXSize), 
+    {NewRY, NewRYSize, WY, NewWYSize} = adjust_coordinate(RY, RYSize, WYSize, RasterYSize), 
+    {{NewRX, NewRY, NewRXSize, NewRYSize}, {WX, WY, NewWXSize, NewWYSize}}.
+
+%% Coordinates should not go out of the bounds of the raster
+adjust_coordinate(RCoord, RSize, WSize, RasterSize) ->
+    {NewRCoord, NewRSize0, W, NewWSize0} = 
+        case (RCoord < 0) of
+            true ->
+               RShift = abs(RCoord),
+               AW = trunc(WSize * (float(RShift) / RSize)),
+               AWSize = WSize - AW,
+               ARSize = RSize - trunc(RSize * (float(RShift) / RSize)),
+               ARCoord = 0,
+               {ARCoord, ARSize, AW, AWSize};
+           false ->
+               {RCoord, RSize, 0, WSize}
+        end,
+    {NewRSize, NewWSize} = 
+        case ((NewRCoord + NewRSize0) > RasterSize) of
+            true ->
+               AWSize1 = trunc(NewWSize0 * (float(RasterSize - NewRCoord) / NewRSize0)),
+               ARSize1 = RasterSize - NewRCoord,
+               {ARSize1, AWSize1};
+           false ->
+               {NewRSize0, NewWSize0}
+        end,
+    {NewRCoord, NewRSize, W, NewWSize}.
+
 base_tiles_bounds(Profile) ->
     #{zmax := Zmax, zoom_extents := ZoomExtents} = Profile,
     lists:nth(Zmax + 1, ZoomExtents).
 
+-spec tile_bounds(profile(), non_neg_integer(), non_neg_integer(), zoom_range()) -> tile_bounds().
+tile_bounds(#{tileSize := TileSize} = Profile, TX, TY, TZ) ->
+    InitialResolution = initialResolution(Profile),
+    Resolution = resolution(InitialResolution, TZ),
+    {Xmin, Ymin} = pixels2units(TX * TileSize, TY * TileSize, Resolution, originShift(Profile)),
+    {Xmax, Ymax} = pixels2units((TX + 1) * TileSize, (TY + 1) * TileSize, Resolution, originShift(Profile)),
+    {Xmin, Ymin, Xmax, Ymax}.
+
 %% Output Bounds - coordinates in the output SRS
 -spec output_bounds(raster_info()) -> map().
 output_bounds(RasterInfo) ->
-    #{origin := O, pixelSize := PS, rasterWidth := XSize, rasterHeight := YSize} = RasterInfo,
+    #{origin := O, pixelSize := PS, rasterSize := {XSize, YSize}} = RasterInfo,
     {Ominx, Omaxy} = O,
     {PixelXsize, PixelYsize} = PS,
     OBminx = Ominx,
@@ -65,14 +130,6 @@ output_bounds(RasterInfo) ->
     %%  self.ominy = self.out_gt[3] + self.warped_input_dataset.RasterYSize * self.out_gt[5]
     OBminy = Omaxy + YSize * PixelYsize,
     #{ominx => OBminx, omaxx => OBmaxx, omaxy => OBmaxy, ominy => OBminy}.
-
--spec tile_bounds(profile(), non_neg_integer(), non_neg_integer(), zoom_range()) -> {float(), float(), float(), float()}.
-tile_bounds(#{tileSize := TileSize} = Profile, TX, TY, TZ) ->
-    InitialResolution = initialResolution(Profile),
-    Resolution = resolution(InitialResolution, TZ),
-    {Xmin, Ymin} = pixels2units(TX * TileSize, TY * TileSize, Resolution, originShift(Profile)),
-    {Xmax, Ymax} = pixels2units((TX + 1) * TileSize, (TY + 1) * TileSize, Resolution, originShift(Profile)),
-    {Xmin, Ymin, Xmax, Ymax}.
 
 %% Returns tile for given mercator/geodetic coordinates
 %% unit: meters for Mercator; deg for Geodetic
@@ -89,7 +146,7 @@ units_to_tile(#{tileSize := TileSize} = Profile, X, Y, TZ) ->
 %% Get the maximal zoom level (closest possible zoom level up on the resolution of raster)
 -spec tile_minmax_zoom(profile(), raster_info()) -> {zoom_range(), zoom_range()}.
 tile_minmax_zoom(#{tileSize := TileSize} = Profile, RasterInfo) ->
-    #{pixelSize := PS, rasterWidth := XSize, rasterHeight := YSize} = RasterInfo,
+    #{pixelSize := PS, rasterSize := {XSize, YSize}} = RasterInfo,
     {PixelXsize, _PixelYsize} = PS,
     Tmaxz = zoom4pixelsize(Profile, PixelXsize),
     ZPixelSize = PixelXsize * max(XSize,YSize) / TileSize,
