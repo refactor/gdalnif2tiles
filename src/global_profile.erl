@@ -1,13 +1,15 @@
 -module(global_profile).
 
--export([tile_minmax_zoom/2]).
--export([zoom_extents_for/2]).
+-export([init/1]).
+-export([new/2]).
 
 -export([tile_bounds/4]).
 -export([output_bounds/1]).
--export([units_to_tile/4]).
 
 -ifdef(TEST).
+-export([units_to_tile/4]).
+-export([tile_minmax_zoom/2]).
+-export([zoom_extents_for/2]).
 -export([zoom4pixelsize/2]).
 -endif.
 
@@ -17,6 +19,27 @@
 
 -export_type([profile/0]).
 -export_type([zoom_range/0]).
+
+-spec init(mercator | geodetic | {geodetic,tmscomatible} | map()) -> profile().
+init(mercator) ->
+    P  = #{ profile => mercator, tileSize => 256 },
+    init(P);
+init(geodetic) ->
+    P  = #{ profile => geodetic, tileSize => 256 },
+    init(P);
+init({geodetic, tmscompatible}) ->
+    P  = #{ profile => geodetic, tileSize => 256, tmscompatible => true },
+    init(P);
+init(#{tileSize := TileSize} = P) ->
+    P1 = maps:put(querysize, TileSize, P),
+    P2 = maps:put(tiledriver, 'PNG', P1),
+    P2.
+
+-spec new(profile(), raster_info()) -> profile().
+new(Profile, RasterInfo) ->
+    {Zmin,Zmax} = global_profile:tile_minmax_zoom(Profile, RasterInfo),
+    ZoomExtents = global_profile:zoom_extents_for(Profile, RasterInfo),
+    Profile#{zmin => Zmin, zmax => Zmax, zoom_extents => ZoomExtents}.
 
 %% Output Bounds - coordinates in the output SRS
 -spec output_bounds(raster_info()) -> map().
