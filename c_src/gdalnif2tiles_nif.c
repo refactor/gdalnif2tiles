@@ -186,6 +186,9 @@ ENIF(info) {
             enif_make_list_from_array(env, filenames, filecount),
             &res);
 
+    enif_make_map_put(env, res, enif_make_atom(env, "warped_input_dataset"),
+            argv[0],
+            &res);
 
     return res;
 }

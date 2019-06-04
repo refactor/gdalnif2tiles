@@ -1,22 +1,28 @@
 -module(global_profile).
 
--export([init/1]).
--export([new_tile_job/2]).
+-include_lib("kernel/include/logger.hrl").
 
--export([geo_query/2]).
+-export([init/1]).
+
 -export([tile_bounds/4]).
 -export([output_bounds/1]).
--export([base_tiles_bounds/1]).
+-export([generate_base_tiles/2]).
+-export([base_tiles_bounds/2]).
 
 -export([units_to_tile/4]).
+-export([tilefilename/3]).
 -ifdef(TEST).
+-export([new_tile_job/2]).
+-export([geo_query/2]).
 -export([tile_minmax_zoom/2]).
 -export([zoom_extents_for/2]).
 -export([zoom4pixelsize/2]).
 -endif.
 
 -type tile_job_info() :: map().
+-type tile_detail()   :: map().
 -type tile_bounds()   :: {float(), float(), float(), float()}.
+-type tiles_range()   :: {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()}.
 -type pixel_window()  :: {non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()}.
 -type profile()       :: map().
 -type raster_info()   :: map().
@@ -38,17 +44,45 @@ init({geodetic, tmscompatible}) ->
     P  = #{ profile => geodetic, tileSize => 256, tmscompatible => true },
     init(P);
 init(#{tileSize := TileSize} = P) ->
-    P1 = maps:put(querysize, TileSize, P),
-    P2 = maps:put(tiledriver, 'PNG', P1),
+%    P1 = maps:put(querysize, TileSize, P),
+    P2 = maps:put(tiledriver, 'PNG', P),
     P2.
 
--spec new_tile_job(profile(), raster_info()) -> tile_job_info().
+%% Generation of the base tiles (the lowest in the pyramid) directly from the input raster
+-spec generate_base_tiles(profile(), raster_info()) -> {tile_job_info(), [tile_detail()]}.
+generate_base_tiles(Profile, RasterInfo) ->
+    {RasterProfile, ZoomExtents} = new_tile_job(Profile, RasterInfo),
+    
+    % Set the bounds
+    #{tzmax := Zmax} = RasterProfile,
+    {Tminx, Tminy, Tmaxx, Tmaxy} = base_tiles_bounds(Zmax, ZoomExtents),
+    TL = [{X, Y} || X <- lists:seq(Tminx, Tmaxx), Y <- lists:seq(Tmaxy, Tminy, -1)],
+    TileDetails = lists:map(fun({Tx, Ty}) -> generate_base_tile(RasterProfile, Tx, Ty, Zmax) end, TL),
+
+    {RasterProfile, TileDetails}.
+
+%% @private
+-spec new_tile_job(profile(), raster_info()) -> {tile_job_info(), [tiles_range()]}.
 new_tile_job(Profile, RasterInfo) ->
     {Zmin,Zmax} = tile_minmax_zoom(Profile, RasterInfo),
     ZoomExtents = zoom_extents_for(Profile, RasterInfo),
-    #{origin := O, pixelSize := PS} = RasterInfo,
-    Profile#{zmin => Zmin, zmax => Zmax, zoom_extents => ZoomExtents,
-             origin => O, pixelSize => PS}.
+    RasterProfile = maps:merge(RasterInfo, Profile),
+    {RasterProfile#{tzmin => Zmin, tzmax => Zmax}, ZoomExtents}.
+
+%% @private
+-spec generate_base_tile(tile_job_info(), non_neg_integer(), non_neg_integer(), zoom_range()) -> tile_detail().
+generate_base_tile(RasterProfile, Tx, Ty, TZ) ->
+    B = tile_bounds(RasterProfile, Tx, Ty, TZ),
+    {RB, WB} = geo_query(RasterProfile, B),
+    {RX, RY, RXSize, RYSize} = RB,
+    {WX, WY, WXSize, WYSize} = WB,
+    #{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
+      wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
+      querysize => maps:get(querysize, RasterProfile, undefined)}.
+
+tilefilename(Tx, Ty, TZ) ->
+    TileFilenameKey = string:trim(io_lib:format("~p/~p/~p.png", [Tx, Ty, TZ])),
+    TileFilenameKey.
 
 %% For given dataset and query in cartographic coordinates returns parameters for ReadRaster()
 %% in raster coordinates and x/y shifts (for border tiles).
@@ -69,7 +103,7 @@ geo_query(RasterInfo, TileBounds) ->
     {WXSize,WYSize} = 
         case maps:get(querysize, RasterInfo, undefined) of
             undefined ->
-                {RXSize, RYSize};  %% ignore querysize, TODO
+                {RXSize, RYSize};
             QuerySize ->
                 {QuerySize, QuerySize}
         end,
@@ -102,8 +136,8 @@ adjust_coordinate(RCoord, RSize, WSize, RasterSize) ->
         end,
     {NewRCoord, NewRSize, W, NewWSize}.
 
-base_tiles_bounds(Profile) ->
-    #{zmax := Zmax, zoom_extents := ZoomExtents} = Profile,
+-spec base_tiles_bounds(zoom_range(), [tiles_range()]) -> tiles_range().
+base_tiles_bounds(Zmax, ZoomExtents) ->
     lists:nth(Zmax + 1, ZoomExtents).
 
 -spec tile_bounds(profile(), non_neg_integer(), non_neg_integer(), zoom_range()) -> tile_bounds().
