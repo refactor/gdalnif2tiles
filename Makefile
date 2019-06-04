@@ -17,7 +17,7 @@ CONFIG ?= config/sys.config
 EXTRA_CONFIG ?= config/extra.config
 
 SHELL=/bin/bash
-SHELL_OPTS = -config ${CONFIG}
+SHELL_OPTS = -config ${CONFIG} -s gdalnif2tiles_app
 
 shell::
 	@if ! [[ -a ${EXTRA_CONFIG} ]]; then echo "[]." > ${EXTRA_CONFIG}; fi

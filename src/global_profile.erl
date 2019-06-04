@@ -43,7 +43,7 @@ init(geodetic) ->
 init({geodetic, tmscompatible}) ->
     P  = #{ profile => geodetic, tileSize => 256, tmscompatible => true },
     init(P);
-init(#{tileSize := TileSize} = P) ->
+init(#{tileSize := _TileSize} = P) ->
 %    P1 = maps:put(querysize, TileSize, P),
     P2 = maps:put(tiledriver, 'PNG', P),
     P2.
