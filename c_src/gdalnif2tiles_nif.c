@@ -28,6 +28,7 @@ static ERL_NIF_TERM ATOM_PROFILE_MERCATOR;
 static ERL_NIF_TERM ATOM_PROFILE_GEODETIC;
 
 static ErlNifResourceType* warpedDatasetResType;
+static ErlNifResourceType* tiledDatasetResType;
 
 static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
     WarpedDataset *warpedDataset = (WarpedDataset*)obj;
@@ -48,6 +49,20 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
     if (warpedDataset->nodata) {
         enif_free(warpedDataset->nodata);
         warpedDataset->nodata = NULL;
+    }
+}
+
+typedef struct tile_dataset {
+    GDALDatasetH dstile; // MEM tile
+    uint32_t tx;
+    uint32_t ty;
+    uint32_t tz;
+} tile_dataset;
+
+static void tiled_dataset_dtor(ErlNifEnv *env, void* obj) {
+    tile_dataset *tds = (tile_dataset*)obj;
+    if (tds->dstile) {
+        GDALClose(tds->dstile);
     }
 }
 
@@ -90,14 +105,7 @@ ENIF(has_nodata) {
     return ATOM_TRUE;
 }
 
-ENIF(nb_data_bands) {
-    const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
-        return enif_make_badarg(env);
-    }
-    GDALDatasetH hDataset = NULL;
-    if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
-
+static inline int count_data_bands(GDALDatasetH hDataset) {
     const int bandNo = 1;
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
     GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
@@ -106,6 +114,18 @@ ENIF(nb_data_bands) {
         rasterCount == 4 || rasterCount == 2) {
         rasterCount -= 1;
     }
+    return rasterCount;
+}
+
+ENIF(nb_data_bands) {
+    const WarpedDataset *wGDALDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+        return enif_make_badarg(env);
+    }
+    GDALDatasetH hDataset = NULL;
+    if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
+
+    int rasterCount = count_data_bands(hDataset);
     return enif_make_int(env, rasterCount);
 }
 
@@ -137,6 +157,9 @@ ENIF(info) {
 
     enif_make_map_put(env, res, enif_make_atom(env, "bandCount"),
             enif_make_int(env, GDALGetRasterCount(hDataset)),
+            &res);
+    enif_make_map_put(env, res, enif_make_atom(env, "dataBandsCount"),
+            enif_make_int(env, count_data_bands(hDataset)),
             &res);
 
     const char* proj = GDALGetProjectionRef(hDataset);
@@ -397,6 +420,55 @@ ENIF(get_xmlvrt) {
     return enif_make_string(env, md[0], ERL_NIF_LATIN1);
 }
 
+static inline uint32_t get_mapvalue(ErlNifEnv *env, ERL_NIF_TERM map, const char* keyname) {
+    ERL_NIF_TERM value;
+    uint32_t v = UINT32_MAX;
+    if (!enif_get_map_value(env, map, enif_make_atom(env, keyname), &value) && 
+            !enif_get_uint(env, value, &v)) {
+        return UINT32_MAX;
+    }
+    return v;
+}
+static inline WarpedDataset* get_wdataset_res(ErlNifEnv *env, ERL_NIF_TERM map) {
+    ERL_NIF_TERM res;
+    if (!enif_get_map_value(env, map, enif_make_atom(env, "warped_input_dataset"), &res))
+        return NULL;
+    WarpedDataset *warpedDataset = NULL;
+    if (!enif_get_resource(env, res, warpedDatasetResType, (void**)&warpedDataset)) {
+        WARN("fail to get warped dataset");
+        return NULL;
+    }
+    return warpedDataset;
+}
+    
+ENIF(create_base_tile) {
+    uint32_t tilesize = get_mapvalue(env, argv[0], "tileSize");
+    int dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
+    WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
+    //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
+    //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
+    //  querysize => maps:get(querysize, RasterProfile, undefined)}.
+    uint32_t tx = get_mapvalue(env, argv[1], "tx");
+    uint32_t ty = get_mapvalue(env, argv[1], "ty");
+    uint32_t tz = get_mapvalue(env, argv[1], "tz");
+    uint32_t rx = get_mapvalue(env, argv[1], "rx");
+    uint32_t ry = get_mapvalue(env, argv[1], "ry");
+    uint32_t rxsize = get_mapvalue(env, argv[1], "rxsize");
+    uint32_t rysize = get_mapvalue(env, argv[1], "rysize");
+    uint32_t wx = get_mapvalue(env, argv[1], "wx");
+    uint32_t wy = get_mapvalue(env, argv[1], "wy");
+    uint32_t wxsize = get_mapvalue(env, argv[1], "wxsize");
+    uint32_t wysize = get_mapvalue(env, argv[1], "wysize");
+    uint32_t querysize = get_mapvalue(env, argv[1], "querysize");
+    if (querysize == UINT32_MAX)
+        return enif_raise_exception(env, enif_make_string(env, "no querysize", ERL_NIF_LATIN1));
+
+    int tilebands = dataBandsCount + 1;
+    GDALDriverH memDriver = GDALGetDriverByName( "MEM" );
+    GDALDatasetH dstile = GDALCreate(memDriver, "", tilesize, tilesize, tilebands, GDT_Byte, NULL);
+    return enif_raise_exception(env, ATOM_OK);
+}
+
 ENIF(get_pixel) {
     WarpedDataset *warpedDataset = NULL;
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
@@ -441,6 +513,7 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     LOG("check 3.0 version: %d", res);
 
     warpedDatasetResType = enif_open_resource_type(env, NULL, "warpedDataset", warped_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
+    tiledDatasetResType = enif_open_resource_type(env, NULL, "tiledDataset", tiled_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
 
     ATOM_OK = enif_make_atom(env, "ok");
     ATOM_TRUE = enif_make_atom(env, "true");
@@ -462,6 +535,7 @@ static ErlNifFunc nif_funcs[] = {
     {"nb_data_bands",  1, nb_data_bands, 0},
     {"info",           1, info, 0},
     {"band_info",      2, band_info, 0},
+    {"create_base_tile", 2, create_base_tile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_pixel",      3, get_pixel, 0}
 };
 
