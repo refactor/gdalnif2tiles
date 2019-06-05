@@ -30,7 +30,7 @@ typedef struct nodata_list {
  *   reproject according world-profile: MERCATOR or GEODETIC
  */
 typedef struct WarpedDataset {
-    bool warped;    // tag to determine GC
+    GDALDatasetH raw_input_dataset;
     GDALDatasetH warped_input_dataset;
 
     OGRSpatialReferenceH output_srs;
@@ -49,32 +49,32 @@ static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
     }
 }
 
-static inline GDALDatasetH reprojectDataset(const GDALDatasetH ds, OGRSpatialReferenceH dstSRS) {
-    GDALDatasetH hSrcDS = ds;
+static inline GDALDatasetH reprojectDataset(const GDALDatasetH hSrcDS, OGRSpatialReferenceH dstSRS) {
     GDALDatasetH hDstDS = NULL;
 
-    const char* proj = GDALGetProjectionRef(ds);
-    OGRSpatialReferenceH fileSRS = OSRNewSpatialReference(NULL);
-    if (proj == NULL || OGRERR_NONE != OSRSetFromUserInput(fileSRS, proj)) {
+    const char* srcSRSWKT = GDALGetProjectionRef(hSrcDS);
+    OGRSpatialReferenceH srcSRS = OSRNewSpatialReference(NULL);
+    if (srcSRSWKT == NULL || OGRERR_NONE != OSRSetFromUserInput(srcSRS, srcSRSWKT)) {
     //    GDALClose(hDataset);
-        OSRDestroySpatialReference(fileSRS);
+        OSRDestroySpatialReference(srcSRS);
         return NULL;
     }
-    if (OSRIsSame(fileSRS, dstSRS)) {
-        hDstDS = ds;
+    if (OSRIsSame(srcSRS, dstSRS)) {
+        hDstDS = hSrcDS;
     }
     else {
         char *pszDstSRSWKT = NULL;
         OSRExportToWkt(dstSRS, &pszDstSRSWKT);
-        LOG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose)");
+        LOG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose), the work are lengthy");
         hDstDS = GDALAutoCreateWarpedVRT(hSrcDS,
-                                         GDALGetProjectionRef(hSrcDS), pszDstSRSWKT,
+                                         srcSRSWKT, pszDstSRSWKT,
                                          GRA_NearestNeighbour,
                                          0.0,
                                          NULL);
         //hDstDS.GetDriver().CreateCopy("tiles.vrt", to_dataset)
         CPLFree(pszDstSRSWKT);
     }
+    OSRDestroySpatialReference(srcSRS);
     return hDstDS;
 }
 

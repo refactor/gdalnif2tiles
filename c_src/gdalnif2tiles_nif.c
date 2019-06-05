@@ -30,10 +30,15 @@ static ERL_NIF_TERM ATOM_PROFILE_GEODETIC;
 static ErlNifResourceType* warpedDatasetResType;
 static ErlNifResourceType* tiledDatasetResType;
 
+static inline bool is_warped_dataset(const WarpedDataset *warpedDataset) {
+    return warpedDataset && warpedDataset->warped_input_dataset &&
+        (warpedDataset->raw_input_dataset != warpedDataset->warped_input_dataset);
+}
+
 static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
     WarpedDataset *warpedDataset = (WarpedDataset*)obj;
-    LOG("warpedDataset -> %p", warpedDataset);
-    if (warpedDataset->warped_input_dataset) {
+    LOG("warpedDataset res -> %p", warpedDataset);
+    if (is_warped_dataset(warpedDataset) && warpedDataset->warped_input_dataset) {
         LOG("close warped_input_dataset: %p", warpedDataset->warped_input_dataset);
         GDALClose(warpedDataset->warped_input_dataset);
         warpedDataset->warped_input_dataset = NULL;
@@ -46,7 +51,13 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
         OSRDestroySpatialReference(warpedDataset->output_srs);
         warpedDataset->output_srs = NULL;
     }
+    if (warpedDataset->raw_input_dataset) {
+        LOG("close raw_input_dataset: %p", warpedDataset->raw_input_dataset);
+        GDALClose(warpedDataset->raw_input_dataset);
+        warpedDataset->raw_input_dataset = NULL;
+    }
     if (warpedDataset->nodata) {
+        LOG("free nodata...%p", warpedDataset->nodata);
         enif_free(warpedDataset->nodata);
         warpedDataset->nodata = NULL;
     }
@@ -86,11 +97,11 @@ nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
 }
 
 ENIF(is_warped) {
-    const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    const WarpedDataset *warpedDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&warpedDataset)) {
         return enif_make_badarg(env);
     }
-    if (wGDALDataset->warped)
+    if (is_warped_dataset(warpedDataset))
         return ATOM_TRUE;
     return ATOM_FALSE;
 }
@@ -139,7 +150,7 @@ ENIF(info) {
     if (hDataset == NULL)
         return enif_raise_exception(env, enif_make_string(env, "NULL warped_input_dataset", ERL_NIF_LATIN1));
 
-    LOG("info success, hDataset -> %p", hDataset);
+    LOG("info success, warped_input_dataset -> %p", hDataset);
     GDALDriverH hDriver = GDALGetDatasetDriver(hDataset);
     ERL_NIF_TERM res = enif_make_new_map(env);
     enif_make_map_put(env, res, enif_make_atom(env, "driverShortName"),
@@ -228,7 +239,7 @@ ENIF(band_info) {
     if (!enif_get_int(env, argv[1], &bandNo)) {
         return enif_make_badarg(env);
     }
-    LOG("band_info success: handle -> %p, for band# %d", hDataset, bandNo);
+    LOG("band_info success: warped_input_dataset -> %p, for band# %d", hDataset, bandNo);
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
 
     ERL_NIF_TERM res = enif_make_new_map(env);
@@ -270,7 +281,6 @@ ENIF(band_info) {
 }
 
 static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDALDatasetH hSrsDS, const ERL_NIF_TERM profile) {
-    *warpedDataset = (WarpedDataset) { 0 };
     OGRSpatialReferenceH output_srs = OSRNewSpatialReference(NULL);
     if (enif_compare(ATOM_PROFILE_MERCATOR, profile) == 0) {
         OSRImportFromEPSG(output_srs, 3857);
@@ -290,10 +300,8 @@ static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDA
         return NULL;
     }
 
-    if (warpedDataset->warped_input_dataset != hSrsDS) {
-        warpedDataset->warped = true;
-    }
-    LOG("warped: %d", warpedDataset->warped);
+    warpedDataset->raw_input_dataset = hSrsDS;
+    LOG("warped: %d", is_warped_dataset(warpedDataset));
     warpedDataset->nodata = extract_nodatavalues(hSrsDS);
 
     warpedDataset->output_srs = output_srs;
@@ -309,7 +317,7 @@ ENIF(open_with_profile) {
     LOG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
     LOG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
     GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
-    LOG("hDataset -> %p", hDataset);
+    LOG("raw hDataset -> %p", hDataset);
     if (hDataset == NULL) {
         return enif_raise_exception(env,
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
@@ -317,23 +325,23 @@ ENIF(open_with_profile) {
 
     ERL_NIF_TERM profile = argv[1];
 
-    WarpedDataset wd;
-    if (reprojectTo(&wd, hDataset, profile) == NULL) 
+    // it's better to auto-GC WarpedDataset resource
+    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
+    *warpedDataset = (WarpedDataset) { 0 };
+    ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
+    enif_release_resource(warpedDataset);
+    if (reprojectTo(warpedDataset, hDataset, profile) == NULL) 
         return enif_raise_exception(env,
             enif_make_string(env, "SpatialReference error", ERL_NIF_LATIN1));
 
     ERL_NIF_TERM uiterm = enif_make_unique_integer(env, ERL_NIF_UNIQUE_POSITIVE);
     int ui = 0;
     enif_get_int(env, uiterm, &ui);
-    if (snprintf(wd.vmfilename, sizeof(wd.vmfilename), "/vsimem/tmp/%s-%d.vrt", CPLGetBasename(filename), ui) < 0) {
+    if (snprintf(warpedDataset->vmfilename, sizeof(warpedDataset->vmfilename), "/vsimem/tmp/%s-%d.vrt", CPLGetBasename(filename), ui) < 0) {
         return enif_raise_exception(env, enif_make_string(env, "filename too long", ERL_NIF_LATIN1));
     }
-    LOG("open with vmfilename: %s", wd.vmfilename);
+    LOG("open with vmfilename: %s", warpedDataset->vmfilename);
 
-    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
-    *warpedDataset = wd;
-    ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
-    enif_release_resource(warpedDataset);
     return res;
 }
 
@@ -342,7 +350,7 @@ ENIF(create_vrt_copy) {
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
-    LOG("create-copy an VRT dataset on memfile: %s, is input dataset warped: %d", wGDALDataset->vmfilename, wGDALDataset->warped);
+    LOG("create-copy an VRT dataset on memfile: %s, is input dataset warped: %d", wGDALDataset->vmfilename, is_warped_dataset(wGDALDataset));
     if (strncmp(wGDALDataset->vmfilename, "/vsimem/", 8) == 0) {
         VSIStatBufL statBuf;
         if (CE_None == VSIStatExL(wGDALDataset->vmfilename, &statBuf, 0) && statBuf.st_size > 0) {
@@ -363,7 +371,9 @@ ENIF(create_vrt_copy) {
 
         if (CE_None == VSIStatExL(wGDALDataset->vmfilename, &statBuf, 0))
             LOG("memfile: sz=%d, mode=%d", statBuf.st_size, statBuf.st_mode);
-        GDALClose(wGDALDataset->warped_input_dataset);
+
+        if (is_warped_dataset(wGDALDataset))
+            GDALClose(wGDALDataset->warped_input_dataset);
         wGDALDataset->warped_input_dataset = hDstDS;
     }
     return argv[0];
@@ -402,7 +412,8 @@ ENIF(correct_dataset) {
         }
     }
 
-    GDALClose(warpedDataset->warped_input_dataset);  // ???
+    LOG("close old warped_input_dataset(%p), use corrected one(%p)", warpedDataset->warped_input_dataset, correctedDataset);
+    GDALClose(warpedDataset->warped_input_dataset); 
     warpedDataset->warped_input_dataset = correctedDataset;
     return argv[0];
 }
@@ -445,6 +456,7 @@ ENIF(create_base_tile) {
     uint32_t tilesize = get_mapvalue(env, argv[0], "tileSize");
     int dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
     WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
+    GDALDatasetH ds = warpedDataset->warped_input_dataset;
     //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
     //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
     //  querysize => maps:get(querysize, RasterProfile, undefined)}.
@@ -491,7 +503,7 @@ ENIF(get_pixel) {
     CPLErr res = GDALRasterIO(hBand, GF_Read,
             nXOff, nYOff, 1, 1,
             &pixelValue, 1, 1,
-            GDT_Byte,
+            GDT_Byte,  // TODO: what about other type
             0,0);
     if (res != CE_None) {
         return enif_raise_exception(env,
