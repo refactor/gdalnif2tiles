@@ -13,9 +13,10 @@
 -export([nb_data_bands/1]).
 -export([open_with_profile/2]).
 -export([get_xmlvrt/1]).
+-export([write_png/1]).
 
 -type wdataset() :: reference().
--type tile_dataset() :: reference().
+-type tiled_dataset() :: reference().
 
 -export_type([wdataset/0]).
 
@@ -40,9 +41,16 @@ unique_id() ->
 tmp_vrt_filename(Filename) ->
     lists:flatten(io_lib:format("~ts_~p.vrt", [Filename, unique_id()])).
 
--spec info(wdataset()) -> global_profile:raster_info().
-info(_Dataset) ->
+-spec dataset_info(wdataset()) -> global_profile:raster_info().
+dataset_info(_Dataset) ->
     erlang:nif_error(notfound).
+
+-spec info(wdataset()) -> global_profile:raster_info().
+info(Dataset) ->
+    DI = dataset_info(Dataset),
+    #{bandCount := BandCount} = DI,
+    BandInfos = [band_info(Dataset, B) || B <- lists:seq(1,BandCount)],
+    maps:put(band_infos, BandInfos, DI).
 
 -spec band_info(wdataset(), pos_integer()) -> map().
 band_info(_Dataset, _BandNo) ->
@@ -50,6 +58,10 @@ band_info(_Dataset, _BandNo) ->
 
 -spec get_pixel(wdataset(), non_neg_integer(), non_neg_integer()) -> list(float()).
 get_pixel(_Dataset, _X, _Y) ->
+    erlang:nif_error(notfound).
+
+-spec write_png(tiled_dataset()) -> list(float()).
+write_png(_Dataset) ->
     erlang:nif_error(notfound).
 
 -spec open_to(string(), global_profile:profile()) -> reference().
@@ -134,6 +146,7 @@ update_alpha_value_for_non_alpha_inputs(WDataset) ->
         NewTL = add_VRTRasterBand_to_string(Band, TL),
   %      ?LOG_DEBUG("~p", [NewTL]),
         CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
+        ?LOG_DEBUG("write file: vtils.vrt"),
         file:write_file("vtiles.vrt", CorrectedStr),
         correct_dataset(WDataset, CorrectedStr),
         WDataset;
@@ -175,14 +188,14 @@ correct_dataset(_Dataset, _VrtStr) ->
 
 %% @private
 raster_count(WDataset) ->
-    #{bandCount := RC} = info(WDataset),
+    #{bandCount := RC} = dataset_info(WDataset),
     RC.
 
 %% Return the number of data (non-alpha) bands of a gdal dataset
 nb_data_bands(_Dataset) ->
     erlang:nif_error(notfound).
 
--spec create_base_tile(global_profile:tile_job_info(), global_profile:tile_detail()) -> tile_dataset().
+-spec create_base_tile(global_profile:tile_job_info(), global_profile:tile_detail()) -> tiled_dataset().
 create_base_tile(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 

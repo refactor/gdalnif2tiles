@@ -63,17 +63,18 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
     }
 }
 
-typedef struct tile_dataset {
+typedef struct tiled_dataset {
     GDALDatasetH dstile; // MEM tile
     uint32_t tx;
     uint32_t ty;
     uint32_t tz;
-} tile_dataset;
+} tiled_dataset;
 
 static void tiled_dataset_dtor(ErlNifEnv *env, void* obj) {
-    tile_dataset *tds = (tile_dataset*)obj;
+    tiled_dataset *tds = (tiled_dataset*)obj;
     if (tds->dstile) {
         GDALClose(tds->dstile);
+        tds->dstile = NULL;
     }
 }
 
@@ -140,17 +141,38 @@ ENIF(nb_data_bands) {
     return enif_make_int(env, rasterCount);
 }
 
-ENIF(info) {
+ENIF(write_png) {
+    const tiled_dataset *tiledDataset = NULL;
+    if (!enif_get_resource(env, argv[0], tiledDatasetResType, (void**)&tiledDataset)) {
+        WARN("unknown info(%T)", argv[0]);
+        return enif_make_badarg(env);
+    }
+    LOG("tz: %u, tx: %u, ty: %u", tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
+    
+    GDALDriverH pngDriver = GDALGetDriverByName("PNG");
+    GDALDatasetH hDstDS = GDALCreateCopy(pngDriver, "/tmp/aaa.png", tiledDataset->dstile, FALSE, NULL, NULL, NULL);
+    if (hDstDS != NULL) GDALClose(hDstDS);
+
+    return ATOM_OK;
+}
+
+ENIF(dataset_info) {
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    const tiled_dataset *tiledDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset) &&
+        !enif_get_resource(env, argv[0], tiledDatasetResType, (void**)&tiledDataset)) {
+        WARN("unknown dataset_info(%T)", argv[0]);
         return enif_make_badarg(env);
     }
     
-    GDALDatasetH hDataset = wGDALDataset->warped_input_dataset;
+    GDALDatasetH hDataset = NULL;
+    if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
+    if (tiledDataset) hDataset = tiledDataset->dstile;
+
     if (hDataset == NULL)
         return enif_raise_exception(env, enif_make_string(env, "NULL warped_input_dataset", ERL_NIF_LATIN1));
 
-    LOG("info success, warped_input_dataset -> %p", hDataset);
+    LOG("dataset_info success, dataset -> %p", hDataset);
     GDALDriverH hDriver = GDALGetDatasetDriver(hDataset);
     ERL_NIF_TERM res = enif_make_new_map(env);
     enif_make_map_put(env, res, enif_make_atom(env, "driverShortName"),
@@ -174,7 +196,7 @@ ENIF(info) {
             &res);
 
     const char* proj = GDALGetProjectionRef(hDataset);
-    if (proj != NULL) {
+    if (proj != NULL && CPLStrnlen(proj, 16) > 0) {
         enif_make_map_put(env, res, enif_make_atom(env, "projection"),
                 enif_make_string(env, proj, ERL_NIF_LATIN1),
                 &res);
@@ -194,7 +216,7 @@ ENIF(info) {
                 &res);
     }
                     
-    if (wGDALDataset->nodata) {
+    if (wGDALDataset && wGDALDataset->nodata) {
         char nodatavalues[128] = {0};
         cat_novalues(wGDALDataset->nodata, nodatavalues, sizeof(nodatavalues));
         enif_make_map_put(env, res, enif_make_atom(env, "nodataValues"),
@@ -229,17 +251,22 @@ ENIF(info) {
 
 ENIF(band_info) {
     const WarpedDataset *wGDALDataset = NULL;
-    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
+    const tiled_dataset *tiledDataset = NULL;
+    if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset) &&
+        !enif_get_resource(env, argv[0], tiledDatasetResType, (void**)&tiledDataset)) {
+        WARN("unknown dataset_info(%T)", argv[0]);
         return enif_make_badarg(env);
     }
+    
     GDALDatasetH hDataset = NULL;
     if (wGDALDataset) hDataset = wGDALDataset->warped_input_dataset;
+    if (tiledDataset) hDataset = tiledDataset->dstile;
 
     int bandNo = 0;
     if (!enif_get_int(env, argv[1], &bandNo)) {
         return enif_make_badarg(env);
     }
-    LOG("band_info success: warped_input_dataset -> %p, for band# %d", hDataset, bandNo);
+    LOG("success: warped_input_dataset -> %p, for band# %d", hDataset, bandNo);
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
 
     ERL_NIF_TERM res = enif_make_new_map(env);
@@ -267,8 +294,8 @@ ENIF(band_info) {
         GDALGetRasterMaximum(hBand, &bGotMax),
     };
     if (!(bGotMin && bGotMax)) {
-        WARN("lengthy compute....");
-        GDALComputeRasterMinMax(hBand, TRUE, adfMinMax);
+        WARN("do lengthy compute.... [%f, %f]", adfMinMax[0], adfMinMax[1]);
+        GDALComputeRasterMinMax(hBand, FALSE, adfMinMax);
     }
     enif_make_map_put(env, res,
             enif_make_atom(env, "min_max"),
@@ -434,8 +461,9 @@ ENIF(get_xmlvrt) {
 static inline uint32_t get_mapvalue(ErlNifEnv *env, ERL_NIF_TERM map, const char* keyname) {
     ERL_NIF_TERM value;
     uint32_t v = UINT32_MAX;
-    if (!enif_get_map_value(env, map, enif_make_atom(env, keyname), &value) && 
+    if (!enif_get_map_value(env, map, enif_make_atom(env, keyname), &value) ||
             !enif_get_uint(env, value, &v)) {
+        WARN("value: %T", value);
         return UINT32_MAX;
     }
     return v;
@@ -452,33 +480,139 @@ static inline WarpedDataset* get_wdataset_res(ErlNifEnv *env, ERL_NIF_TERM map) 
     return warpedDataset;
 }
     
+void scale_query_to_tile(GDALDatasetH dsquery, GDALDatasetH dstile) {
+}
+
 ENIF(create_base_tile) {
-    uint32_t tilesize = get_mapvalue(env, argv[0], "tileSize");
-    int dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
-    WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
-    GDALDatasetH ds = warpedDataset->warped_input_dataset;
-    //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
-    //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
-    //  querysize => maps:get(querysize, RasterProfile, undefined)}.
-    uint32_t tx = get_mapvalue(env, argv[1], "tx");
-    uint32_t ty = get_mapvalue(env, argv[1], "ty");
-    uint32_t tz = get_mapvalue(env, argv[1], "tz");
-    uint32_t rx = get_mapvalue(env, argv[1], "rx");
-    uint32_t ry = get_mapvalue(env, argv[1], "ry");
-    uint32_t rxsize = get_mapvalue(env, argv[1], "rxsize");
-    uint32_t rysize = get_mapvalue(env, argv[1], "rysize");
-    uint32_t wx = get_mapvalue(env, argv[1], "wx");
-    uint32_t wy = get_mapvalue(env, argv[1], "wy");
-    uint32_t wxsize = get_mapvalue(env, argv[1], "wxsize");
-    uint32_t wysize = get_mapvalue(env, argv[1], "wysize");
-    uint32_t querysize = get_mapvalue(env, argv[1], "querysize");
+    const uint32_t tile_size = get_mapvalue(env, argv[0], "tileSize");
+    const uint32_t querysize = get_mapvalue(env, argv[0], "querysize");
     if (querysize == UINT32_MAX)
         return enif_raise_exception(env, enif_make_string(env, "no querysize", ERL_NIF_LATIN1));
 
-    int tilebands = dataBandsCount + 1;
+    const uint32_t dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
+    LOG("tile_size: %u, querysize: %u, dataBandsCount: %u", tile_size, querysize, dataBandsCount);
+    WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
+    GDALDatasetH ds = warpedDataset->warped_input_dataset;
+    LOG("src GDALDataset: %p, DataType", ds);
+    //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
+    //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
+    //  querysize => maps:get(querysize, RasterProfile, undefined)}.
+    const uint32_t tx        = get_mapvalue(env, argv[1], "tx");
+    const uint32_t ty        = get_mapvalue(env, argv[1], "ty");
+    const uint32_t tz        = get_mapvalue(env, argv[1], "tz");
+    const uint32_t rx        = get_mapvalue(env, argv[1], "rx");
+    const uint32_t ry        = get_mapvalue(env, argv[1], "ry");
+    const uint32_t rxsize    = get_mapvalue(env, argv[1], "rxsize");
+    const uint32_t rysize    = get_mapvalue(env, argv[1], "rysize");
+    const uint32_t wx        = get_mapvalue(env, argv[1], "wx");
+    const uint32_t wy        = get_mapvalue(env, argv[1], "wy");
+    const uint32_t wxsize    = get_mapvalue(env, argv[1], "wxsize");
+    const uint32_t wysize    = get_mapvalue(env, argv[1], "wysize");
+    LOG("tx: %u, ty: %u, tz: %u", tx, ty, tz);
+    LOG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
+    LOG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
+
+    const int tilebands = dataBandsCount + 1;
     GDALDriverH memDriver = GDALGetDriverByName( "MEM" );
-    GDALDatasetH dstile = GDALCreate(memDriver, "", tilesize, tilesize, tilebands, GDT_Byte, NULL);
-    return enif_raise_exception(env, ATOM_OK);
+    GDALDatasetH dstile = GDALCreate(memDriver, "", tile_size, tile_size, tilebands, GDT_Byte, NULL);
+
+    GDALRasterBandH hBand = GDALGetRasterBand(ds, 1);
+    GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
+    GDALDataType datatype = GDALGetRasterDataType(hBand);
+    LOG("datatype: band1= %s, alpha=%s", GDALGetDataTypeName(datatype), GDALGetDataTypeName(GDALGetRasterDataType(alphaband)));
+    uint8_t *alpha = (uint8_t*) CPLCalloc(wxsize * wysize, sizeof(*alpha));
+    CPLErr res = GDALRasterIO(alphaband, GF_Read,
+            rx, ry, rxsize, rysize,
+            alpha,
+            wxsize, wysize,
+            GDT_Byte,
+            0,0);
+    if (res != CE_None) {
+        CPLFree(alpha);
+        return enif_raise_exception(env,
+                enif_make_string(env, "raster io error", ERL_NIF_LATIN1));
+    }
+    uint32_t sum = 0;
+    for (int i = 0; i < wxsize * wysize; ++i) sum += alpha[i];
+    if (sum == 0) {
+        WARN("Detect totally transparent tile and SHOULD skip its creation");
+    }
+
+    uint8_t *data = (uint8_t*) CPLCalloc(wxsize * wysize * dataBandsCount, sizeof(*data));
+    int panBandMap[dataBandsCount];
+    for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
+    res = GDALDatasetRasterIO(ds, GF_Read, 
+            rx, ry, rxsize, rysize,
+            data, wxsize, wysize,
+            GDT_Byte,
+            dataBandsCount, panBandMap,
+            0, 0, 0);
+    LOG("data: %u, %u, %u, %u, %u...", data[0],data[1],data[2], data[3],data[4]);
+ //   LOG("data: %s", CPLBinaryToHex(wxsize * wysize, data));
+    if (res == CE_Failure) {
+        WARN("fail to read dataset raster. errno=%d", CPLGetLastErrorNo());
+    }
+    else {
+        // if data:
+        // TODO: 1. different GDT_Type; 2. try async read
+        if (tile_size == querysize) {
+            res = GDALDatasetRasterIO(dstile, GF_Write,
+                    wx, wy, wxsize, wysize,
+                    data, wxsize, wysize,
+                    GDT_Byte,
+                    dataBandsCount, panBandMap,
+                    0, 0, 0);
+            if (res == CE_Failure) {
+                WARN("fail to write data to dstile: errno=%d", CPLGetLastErrorNo());
+            }
+            res = GDALDatasetRasterIO(dstile, GF_Write,
+                    wx, wy, wxsize, wysize,
+                    alpha, wxsize, wysize,
+                    GDT_Byte,
+                    1, (int[]){ tilebands },
+                    0, 0, 0);
+            if (res == CE_Failure) {
+                WARN("fail to write alpha to dstile. error=%d", CPLGetLastErrorNo());
+            }
+        }
+        else {
+            GDALDatasetH dsquery = GDALCreate(memDriver, "", querysize, querysize, tilebands, GDT_Byte, NULL);
+            res = GDALDatasetRasterIO(dsquery, GF_Write,
+                    wx, wy, wxsize, wysize,
+                    data, wxsize, wysize,
+                    GDT_Byte,
+                    dataBandsCount, panBandMap,
+                    0, 0, 0);
+            if (res == CE_Failure) {
+                WARN("fail to write data to dsquery: error=%d", CPLGetLastErrorNo());
+            }
+            res = GDALDatasetRasterIO(dsquery, GF_Write,
+                    wx, wy, wxsize, wysize,
+                    alpha, wxsize, wysize,
+                    GDT_Byte,
+                    1, (int[]){ tilebands },
+                    0, 0, 0);
+            if (res == CE_Failure) {
+                WARN("fail to write alpha to dsquery. errno=%d", CPLGetLastErrorNo());
+            }
+            //scale_query_to_tile(dsquery, dstile);
+            for (int i = 1; i <= tilebands; ++i) {
+                GDALRasterBandH hDstBand = GDALGetRasterBand(dstile, i);
+                GDALRegenerateOverviews(GDALGetRasterBand(dsquery, i), 1, &hDstBand, "AVERAGE", NULL, NULL);
+            }
+        }
+    }
+    CPLFree(data);
+    CPLFree(alpha);
+
+    tiled_dataset *tds = enif_alloc_resource(tiledDatasetResType, sizeof(*tds));
+    tds->dstile = dstile;
+    tds->tx = tx;
+    tds->ty = ty;
+    tds->tz = tz;
+    ERL_NIF_TERM ret = enif_make_resource(env, tds);
+    enif_release_resource(tds);
+    return ret;
 }
 
 ENIF(get_pixel) {
@@ -538,17 +672,18 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"is_warped",      1, is_warped, 0},
-    {"create_vrt_copy",1, create_vrt_copy, 0},
-    {"has_nodata",     1, has_nodata, 0},
+    {"is_warped",         1, is_warped,         0},
+    {"create_vrt_copy",   1, create_vrt_copy,   0},
+    {"has_nodata",        1, has_nodata,        0},
     {"open_with_profile", 2, open_with_profile, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"correct_dataset",2, correct_dataset, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"get_xmlvrt",     1, get_xmlvrt, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"nb_data_bands",  1, nb_data_bands, 0},
-    {"info",           1, info, 0},
-    {"band_info",      2, band_info, 0},
-    {"create_base_tile", 2, create_base_tile, ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"get_pixel",      3, get_pixel, 0}
+    {"correct_dataset",   2, correct_dataset,   ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"get_xmlvrt",        1, get_xmlvrt,        ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"nb_data_bands",     1, nb_data_bands,     0},
+    {"dataset_info",      1, dataset_info,      ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"band_info",         2, band_info,         ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"create_base_tile",  2, create_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"write_png",         1, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"get_pixel",         3, get_pixel,         0}
 };
 
 ERL_NIF_INIT(gdalnif2tiles, nif_funcs, nifload, NULL,NULL,NULL)

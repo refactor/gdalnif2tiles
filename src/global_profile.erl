@@ -43,9 +43,12 @@ init(geodetic) ->
 init({geodetic, tmscompatible}) ->
     P  = #{ profile => geodetic, tileSize => 256, tmscompatible => true },
     init(P);
-init(#{tileSize := _TileSize} = P) ->
-%    P1 = maps:put(querysize, TileSize, P),
-    P2 = maps:put(tiledriver, 'PNG', P),
+init(#{tileSize := TileSize} = P) ->
+    %% How big should be query window be for scaling down
+    QuerySize = 4 * TileSize,  %% Later on reset according the chosen resampling algorightm
+    P1 = maps:put(querysize, QuerySize, P),
+
+    P2 = maps:put(tiledriver, 'PNG', P1),
     P2.
 
 %% Generation of the base tiles (the lowest in the pyramid) directly from the input raster
