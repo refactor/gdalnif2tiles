@@ -13,8 +13,8 @@ start_link() ->
 
 init([]) ->
     ?LOG_DEBUG("supervisor init..."),
-    Procs = [#{id => gdal2tile_worker,
-               start => {gdaltiles_worker, start_link, []},
+    Procs = [#{id => gdal2tiles_manager,
+               start => {gdal2tiles_manager, start_link, []},
                type => worker,
                modules => [gdaltiles_worker]
               }],
