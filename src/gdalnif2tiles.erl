@@ -13,7 +13,7 @@
 -export([nb_data_bands/1]).
 -export([open_with_profile/2]).
 -export([get_xmlvrt/1]).
--export([write_png/1]).
+-export([write_png/2]).
 
 -type wdataset() :: reference().
 -type tiled_dataset() :: reference().
@@ -60,8 +60,8 @@ band_info(_Dataset, _BandNo) ->
 get_pixel(_Dataset, _X, _Y) ->
     erlang:nif_error(notfound).
 
--spec write_png(tiled_dataset()) -> list(float()).
-write_png(_Dataset) ->
+-spec write_png(tiled_dataset(), file:filename()) -> ok.
+write_png(_Dataset, _OutputDir) ->
     erlang:nif_error(notfound).
 
 -spec open_to(string(), global_profile:profile()) -> reference().

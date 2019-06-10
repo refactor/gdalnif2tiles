@@ -10,6 +10,9 @@ config/extra.config
 *.o
 *.d
 *.zip
+*.png
+*.tif
+*.jpg
 ebin/
 data/
 priv/

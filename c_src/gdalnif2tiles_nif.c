@@ -73,6 +73,7 @@ typedef struct tiled_dataset {
 static void tiled_dataset_dtor(ErlNifEnv *env, void* obj) {
     tiled_dataset *tds = (tiled_dataset*)obj;
     if (tds->dstile) {
+        LOG("close tiled dataset -> ", tds->dstile);
         GDALClose(tds->dstile);
         tds->dstile = NULL;
     }
@@ -148,9 +149,17 @@ ENIF(write_png) {
         return enif_make_badarg(env);
     }
     LOG("tz: %u, tx: %u, ty: %u", tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
+    char output_dir[128];
+    if (!enif_get_string(env, argv[1], output_dir, sizeof(output_dir), ERL_NIF_LATIN1)) {
+        return enif_make_badarg(env);
+    }
     
+    char filename[256];
+    //snprintf(filename, sizeof(filename), "%s/%d-%d-%d.png", output_dir, tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
+    snprintf(filename, sizeof(filename), "%d.png", tiledDataset->ty);
+    LOG("filename: %s", filename);
     GDALDriverH pngDriver = GDALGetDriverByName("PNG");
-    GDALDatasetH hDstDS = GDALCreateCopy(pngDriver, "/tmp/aaa.png", tiledDataset->dstile, FALSE, NULL, NULL, NULL);
+    GDALDatasetH hDstDS = GDALCreateCopy(pngDriver, filename, tiledDataset->dstile, FALSE, NULL, NULL, NULL);
     if (hDstDS != NULL) GDALClose(hDstDS);
 
     return ATOM_OK;
@@ -682,7 +691,7 @@ static ErlNifFunc nif_funcs[] = {
     {"dataset_info",      1, dataset_info,      ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"band_info",         2, band_info,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"create_base_tile",  2, create_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"write_png",         1, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"write_png",         2, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_pixel",         3, get_pixel,         0}
 };
 
