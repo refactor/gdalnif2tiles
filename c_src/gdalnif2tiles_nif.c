@@ -492,6 +492,41 @@ static inline WarpedDataset* get_wdataset_res(ErlNifEnv *env, ERL_NIF_TERM map) 
 void scale_query_to_tile(GDALDatasetH dsquery, GDALDatasetH dstile) {
 }
 
+ENIF(advise_read) {
+    const uint32_t dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
+    LOG("dataBandsCount: %u", dataBandsCount);
+    WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
+    GDALDatasetH ds = warpedDataset->warped_input_dataset;
+    LOG("src GDALDataset: %p, DataType", ds);
+    //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
+    //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
+    //  querysize => maps:get(querysize, RasterProfile, undefined)}.
+    const uint32_t rx        = get_mapvalue(env, argv[1], "rx");
+    const uint32_t ry        = get_mapvalue(env, argv[1], "ry");
+    const uint32_t rxsize    = get_mapvalue(env, argv[1], "rxsize");
+    const uint32_t rysize    = get_mapvalue(env, argv[1], "rysize");
+    const uint32_t wx        = get_mapvalue(env, argv[1], "wx");
+    const uint32_t wy        = get_mapvalue(env, argv[1], "wy");
+    const uint32_t wxsize    = get_mapvalue(env, argv[1], "wxsize");
+    const uint32_t wysize    = get_mapvalue(env, argv[1], "wysize");
+    LOG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
+    LOG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
+
+    int panBandMap[dataBandsCount];
+    for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
+    if (CE_None != GDALDatasetAdviseRead(ds, 
+                        rx, ry, rxsize, rysize,
+                        wxsize, wysize,
+                        GDT_Byte,
+                        dataBandsCount, panBandMap,
+                        NULL)) {
+        WARN("Fail to advise read");
+        return ATOM_FALSE;
+    }
+
+    return ATOM_OK;
+}
+
 ENIF(create_base_tile) {
     const uint32_t tile_size = get_mapvalue(env, argv[0], "tileSize");
     const uint32_t querysize = get_mapvalue(env, argv[0], "querysize");
@@ -690,6 +725,7 @@ static ErlNifFunc nif_funcs[] = {
     {"nb_data_bands",     1, nb_data_bands,     0},
     {"dataset_info",      1, dataset_info,      ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"band_info",         2, band_info,         ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"advise_read",       2, advise_read,  ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"create_base_tile",  2, create_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"write_png",         2, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_pixel",         3, get_pixel,         0}

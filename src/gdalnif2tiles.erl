@@ -6,6 +6,7 @@
 -export([band_info/2]).
 -export([get_pixel/3]).
 -export([open_to/2]).
+-export([advise_read/2]).
 -export([create_base_tile/2]).
 
 -export([unique_id/0]).
@@ -193,6 +194,9 @@ raster_count(WDataset) ->
 
 %% Return the number of data (non-alpha) bands of a gdal dataset
 nb_data_bands(_Dataset) ->
+    erlang:nif_error(notfound).
+
+advise_read(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 
 -spec create_base_tile(global_profile:tile_job_info(), global_profile:tile_detail()) -> tiled_dataset().

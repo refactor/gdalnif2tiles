@@ -15,7 +15,7 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
--define(TIMEOUT, 9000).
+-define(TIMEOUT, 30000).
 
 -record(state, {
           profile :: global_profile:profile(),
