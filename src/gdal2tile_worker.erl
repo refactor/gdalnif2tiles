@@ -16,14 +16,14 @@
 -export([code_change/4]).
 
 -record(state, {
-          job_info :: global_profile:tile_job_info(),
-          tile_detail :: global_profile:tile_detail(),
+          job_info :: world_profile:tile_job_info(),
+          tile_detail :: world_profile:tile_detail(),
           tile :: gdalnif2tiles:tiled_dataset()
 }).
 
 %% API.
 
--spec start_link(global_profile:tile_job_info(), global_profile:tile_detail()) -> {ok, pid()}.
+-spec start_link(world_profile:tile_job_info(), world_profile:tile_detail()) -> {ok, pid()}.
 start_link(JobInfo, TileDetail) ->
     gdalnif2tiles:advise_read(JobInfo, TileDetail),
     gen_statem:start_link(?MODULE, {JobInfo,TileDetail}, []).
@@ -44,8 +44,8 @@ create_base_tile(internal, Msg, #state{job_info = JobInfo, tile_detail = D} = St
     {next_state, store_base_tile, StateData#state{tile = Tile}, [{next_event, internal, by_create_basetile}]};
 ?HANDLE_COMMON.
 
-store_base_tile(internal, EventData, #state{tile = Tile}) ->
-    ?LOG_INFO("STORE basetile by ~p, with event: ~p, tile: ~p", [?MODULE, EventData, Tile]),
+store_base_tile(internal, EventData, #state{job_info = #{output_dir := Dir}, tile = Tile}) ->
+    ?LOG_INFO("STORE basetile to ~p by ~p, with event: ~p, tile: ~p", [Dir, ?MODULE, EventData, Tile]),
     gdalnif2tiles:write_png(Tile, "/tmp/"),
     stop;
 ?HANDLE_COMMON.

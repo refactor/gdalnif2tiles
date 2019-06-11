@@ -362,7 +362,7 @@ ENIF(open_with_profile) {
     ERL_NIF_TERM profile = argv[1];
 
     // it's better to auto-GC WarpedDataset resource
-    WarpedDataset *warpedDataset = enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
+    WarpedDataset *warpedDataset = (WarpedDataset*)enif_alloc_resource(warpedDatasetResType, sizeof(*warpedDataset));
     *warpedDataset = (WarpedDataset) { 0 };
     ERL_NIF_TERM res = enif_make_resource(env, warpedDataset);
     enif_release_resource(warpedDataset);

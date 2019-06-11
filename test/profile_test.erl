@@ -5,10 +5,10 @@
 -define(FEQUAL(E,F), ?assert(abs(E - F) < 0.00000001)).
 
 tile_bounds_for_mercator_test() ->
-    Profile = global_profile:init(mercator),
+    Profile = world_profile:init(mercator),
     {Tx, Ty, Tz} = {3302, 1749, 12},
     {EB0, EB1, EB2, EB3} = {12269060.28411021,-2925397.946530264,12278844.223730713,-2915614.0069097616},
-    TB = global_profile:tile_bounds(Profile, Tx, Ty, Tz),
+    TB = world_profile:tile_bounds(Profile, Tx, Ty, Tz),
     {B0, B1, B2, B3} = TB,
     ?debugFmt("tileBounds(~p, ~p, ~p) = ~p", [Tx, Ty, Tz, TB]),
     ?FEQUAL(EB0, B0),
@@ -17,10 +17,10 @@ tile_bounds_for_mercator_test() ->
     ?FEQUAL(EB3, B3).
 
 tile_bounds_for_geodetic_test() ->
-    Profile = global_profile:init(geodetic),
+    Profile = world_profile:init(geodetic),
     {Tx, Ty, Tz} = {3302, 1749, 12},
     {EB0, EB1, EB2, EB3} = {110.21484375, 63.720703125, 110.302734375, 63.80859375},
-    TB = global_profile:tile_bounds(Profile, Tx, Ty, Tz),
+    TB = world_profile:tile_bounds(Profile, Tx, Ty, Tz),
     {B0, B1, B2, B3} = TB,
     ?debugFmt("tileBounds(~p, ~p, ~p) = ~p", [Tx, Ty, Tz, TB]),
     ?FEQUAL(EB0, B0),
@@ -29,10 +29,10 @@ tile_bounds_for_geodetic_test() ->
     ?FEQUAL(EB3, B3).
     
 tile_bounds_for_tms_geodetic_test() ->
-    Profile = global_profile:init({geodetic, tmscompatible}),
+    Profile = world_profile:init({geodetic, tmscompatible}),
     {Tx, Ty, Tz} = {6604, 3498, 12},
     {EB0, EB1, EB2, EB3} = {110.21484375, 63.720703125, 110.2587890625, 63.7646484375},
-    TB = global_profile:tile_bounds(Profile, Tx, Ty, Tz),
+    TB = world_profile:tile_bounds(Profile, Tx, Ty, Tz),
     {B0, B1, B2, B3} = TB,
     ?debugFmt("tileBounds(~p, ~p, ~p) = ~p", [Tx, Ty, Tz, TB]),
     ?FEQUAL(EB0, B0),
@@ -46,7 +46,7 @@ output_bounds_mercator_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    OB = global_profile:output_bounds(RasterInfo),
+    OB = world_profile:output_bounds(RasterInfo),
     #{ominx := OBminx, omaxx := OBmaxx, omaxy := OBmaxy, ominy := OBminy} = OB,
     ?debugFmt("Bounds (output srs): ~p", [OB]),
     {Eominx,Eominy,Eomaxx,Eomaxy} = {13692281.906532262, 7361849.214671144, 13803645.293279601, 7558443.30498089},
@@ -61,7 +61,7 @@ output_bounds_geodetic_test() ->
              origin => {122.999861111111116,56.000138888888891},
              pixelSize => {0.000277777777778,-0.000277777777778},
              rasterSize => {3601, 3601}},
-    OB = global_profile:output_bounds(RasterInfo),
+    OB = world_profile:output_bounds(RasterInfo),
     #{ominx := OBminx, omaxx := OBmaxx, omaxy := OBmaxy, ominy := OBminy} = OB,
     ?debugFmt("Bounds (output srs): ~p", [OB]),
     {Eominx,Eominy,Eomaxx,Eomaxy} = {122.9998611111111, 54.999861111111116, 124.0001388888889, 56.00013888888889},
@@ -71,8 +71,8 @@ output_bounds_geodetic_test() ->
     ?FEQUAL(Eomaxy, OBmaxy).
 
 mercator_meters_to_tile_test() ->
-    Profile = global_profile:init(mercator),
-    {Tx,Ty} = global_profile:units_to_tile(Profile, 13692281.906532262, 7361849.214671144, 11),
+    Profile = world_profile:init(mercator),
+    {Tx,Ty} = world_profile:units_to_tile(Profile, 13692281.906532262, 7361849.214671144, 11),
     ?assertEqual(1723, Tx),
     ?assertEqual(1400, Ty).
 
@@ -80,20 +80,20 @@ geodetic_lonlat_to_tile_test() ->
     Profile = #{ profile => geodetic, tileSize => 256 },
     Lon = 122.999861, Lat = 54.999861,
     Zoom = 11,
-    {Tx, Ty} = global_profile:units_to_tile(Profile, Lon, Lat, Zoom),
+    {Tx, Ty} = world_profile:units_to_tile(Profile, Lon, Lat, Zoom),
     ?assertEqual(1723, Tx),
     ?assertEqual(824, Ty).
 
 zoom4pixelsize_geodetic_test() ->
     PixelSize = 0.000278,
-    Profile = global_profile:init(geodetic),
-    Z = global_profile:zoom4pixelsize(Profile, PixelSize),
+    Profile = world_profile:init(geodetic),
+    Z = world_profile:zoom4pixelsize(Profile, PixelSize),
     ?assertEqual(12, Z).
     
 zoom4pixelsize_mercator_test() ->
     PixelSize = 44.367883,
-    Profile = global_profile:init(mercator),
-    Z = global_profile:zoom4pixelsize(Profile, PixelSize),
+    Profile = world_profile:init(mercator),
+    Z = world_profile:zoom4pixelsize(Profile, PixelSize),
     ?assertEqual(11, Z).
 
 zoom_for_pixelsize_geodetic_test() ->
@@ -102,8 +102,8 @@ zoom_for_pixelsize_geodetic_test() ->
              origin => {122.999861111111116,56.000138888888891},
              pixelSize => {0.000277777777778,-0.000277777777778},
              rasterSize => {3601, 3601}},
-    Profile = global_profile:init(geodetic),
-    {Zmin,Zmax} = global_profile:tile_minmax_zoom(Profile, RasterInfo),
+    Profile = world_profile:init(geodetic),
+    {Zmin,Zmax} = world_profile:tile_minmax_zoom(Profile, RasterInfo),
     ?assertEqual(8, Zmin),
     ?assertEqual(12, Zmax).
 
@@ -113,8 +113,8 @@ zoom_for_pixelsize_mercator_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile = global_profile:init(mercator),
-    {Zmin,Zmax} = global_profile:tile_minmax_zoom(Profile, RasterInfo),
+    Profile = world_profile:init(mercator),
+    {Zmin,Zmax} = world_profile:tile_minmax_zoom(Profile, RasterInfo),
     ?assertEqual(7, Zmin),
     ?assertEqual(11, Zmax).
 
@@ -124,8 +124,8 @@ zoom_extents_geodetic_test() ->
              origin => {122.999861111111116,56.000138888888891},
              pixelSize => {0.000277777777778,-0.000277777777778},
              rasterSize => {3601, 3601}},
-    Profile = global_profile:init(geodetic),
-    ZoomExtents = global_profile:zoom_extents_for(Profile, RasterInfo),
+    Profile = world_profile:init(geodetic),
+    ZoomExtents = world_profile:zoom_extents_for(Profile, RasterInfo),
     ExpectedZoomExtents = [
         {0, 0, 0, 0},
         {1, 0, 1, 0},
@@ -168,8 +168,8 @@ zoom_extents_mercator_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile = global_profile:init(mercator),
-    ZoomExtents = global_profile:zoom_extents_for(Profile, Info),
+    Profile = world_profile:init(mercator),
+    ZoomExtents = world_profile:zoom_extents_for(Profile, Info),
     ExpectedZoomExtents = [
         {0, 0, 0, 0},
         {1, 1, 1, 1},
@@ -212,10 +212,10 @@ base_tiles_bounds_mercator_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile0 = global_profile:init(mercator),
-    {RasterProfile,ZoomExtents} = global_profile:new_tile_job(Profile0, RasterInfo),
+    Profile0 = world_profile:init(mercator),
+    {RasterProfile,ZoomExtents} = world_profile:new_tile_job(Profile0, RasterInfo),
     #{tzmax := TZ} = RasterProfile,
-    ZoomExtent = global_profile:base_tiles_bounds(TZ, ZoomExtents),
+    ZoomExtent = world_profile:base_tiles_bounds(TZ, ZoomExtents),
     ExpectedZE = {1723, 1400, 1729, 1410},
     ?assertEqual(11, TZ),
     ?assertEqual(ExpectedZE, ZoomExtent).
@@ -226,10 +226,10 @@ base_tiles_bounds_geodetic_test() ->
              origin => {122.999861111111116,56.000138888888891},
              pixelSize => {0.000277777777778,-0.000277777777778},
              rasterSize => {3601, 3601}},
-    Profile0 = global_profile:init(geodetic),
-    {RasterProfile,ZoomExtents} = global_profile:new_tile_job(Profile0, RasterInfo),
+    Profile0 = world_profile:init(geodetic),
+    {RasterProfile,ZoomExtents} = world_profile:new_tile_job(Profile0, RasterInfo),
     #{tzmax := TZ} = RasterProfile,
-    ZoomExtent = global_profile:base_tiles_bounds(TZ, ZoomExtents),
+    ZoomExtent = world_profile:base_tiles_bounds(TZ, ZoomExtents),
     ExpectedZE = {3447, 1649, 3458, 1661},
     ?assertEqual(12, TZ),
     ?assertEqual(ExpectedZE, ZoomExtent).
@@ -240,11 +240,11 @@ geo_query_geodetic_test() ->
              origin => {122.999861111111116,56.000138888888891},
              pixelSize => {0.000277777777778,-0.000277777777778},
              rasterSize => {3601,  3601}},
-    Profile0 = global_profile:init(geodetic),
+    Profile0 = world_profile:init(geodetic),
     Profile = maps:remove(querysize, Profile0),
-    {RasterProfile,_} = global_profile:new_tile_job(Profile, RasterInfo),
+    {RasterProfile,_} = world_profile:new_tile_job(Profile, RasterInfo),
     TileBounds = {122.958984375, 55.986328125, 123.046875, 56.07421875},
-    {RB,WB} = global_profile:geo_query(RasterProfile, TileBounds),
+    {RB,WB} = world_profile:geo_query(RasterProfile, TileBounds),
     ExpectedRB = {0, 0, 169, 50},
     ExpectedWB = {147, 266, 169, 50},
     ?assertEqual(ExpectedRB, RB),
@@ -256,11 +256,11 @@ geo_query_mercator_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile0 = global_profile:init(mercator),
+    Profile0 = world_profile:init(mercator),
     Profile = Profile0#{querysize => 1024},
-    {RasterProfile,_} = global_profile:new_tile_job(Profile, RasterInfo),
+    {RasterProfile,_} = world_profile:new_tile_job(Profile, RasterInfo),
     TileBounds = {13677947.589462582, 7553201.387027975, 13697515.468703587, 7572769.2662689835},
-    {RB,WB} = global_profile:geo_query(RasterProfile, TileBounds),
+    {RB,WB} = world_profile:geo_query(RasterProfile, TileBounds),
     ExpectedRB = {0, 0, 118, 119},
     ExpectedWB = {750, 747, 274, 277},
     ?assertEqual(ExpectedRB, RB),
@@ -272,11 +272,11 @@ geo_query_mercator_with_querysize1_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile0 = global_profile:init(mercator),
+    Profile0 = world_profile:init(mercator),
     Profile = Profile0#{querysize => 441},
-    {RasterProfile,_} = global_profile:new_tile_job(Profile, RasterInfo),
+    {RasterProfile,_} = world_profile:new_tile_job(Profile, RasterInfo),
     TileBounds = {13677947.589462582, 7553201.387027975, 13697515.468703587, 7572769.2662689835},
-    {RB,WB} = global_profile:geo_query(RasterProfile, TileBounds),
+    {RB,WB} = world_profile:geo_query(RasterProfile, TileBounds),
     ExpectedRB = {0, 0, 118, 119},
     ExpectedWB = {323, 322, 118, 119},
     ?assertEqual(ExpectedRB, RB),
@@ -288,11 +288,11 @@ geo_query_mercator_with_querysize2_test() ->
              origin => {13692281.906532262,7558443.30498089},
              pixelSize => {44.36788316627073,-44.36788316627073},
              rasterSize => {2510, 4431}},
-    Profile0 = global_profile:init(mercator),
+    Profile0 = world_profile:init(mercator),
     Profile = Profile0#{querysize => 1024},
-    {RasterProfile,_} = global_profile:new_tile_job(Profile, RasterInfo),
+    {RasterProfile,_} = world_profile:new_tile_job(Profile, RasterInfo),
     TileBounds = {13677947.589462582, 7553201.387027975, 13697515.468703587, 7572769.2662689835},
-    {RB,WB} = global_profile:geo_query(RasterProfile, TileBounds),
+    {RB,WB} = world_profile:geo_query(RasterProfile, TileBounds),
     ExpectedRB = {0, 0, 118, 119},
     ExpectedWB = {750, 747, 274, 277},
     ?assertEqual(ExpectedRB, RB),
@@ -305,11 +305,11 @@ geo_query_mercator_with_querysize_test() ->
              pixelSize => {287.051566576245023,-287.051566576245023},
              querysize => 1024,
              rasterSize => {4233, 4039}},
-    Profile0 = global_profile:init(mercator),
+    Profile0 = world_profile:init(mercator),
     Profile = maps:remove(querysize, Profile0),
-    {RasterProfile,_} = global_profile:new_tile_job(Profile, RasterInfo),
+    {RasterProfile,_} = world_profile:new_tile_job(Profile, RasterInfo),
     TileBounds = {-10958012.374962868, 3913575.8482010253, -10879740.857998848, 3991847.3651650436},
-    {RB,WB} = global_profile:geo_query(RasterProfile, TileBounds),
+    {RB,WB} = world_profile:geo_query(RasterProfile, TileBounds),
     ExpectedRB = {320, 0, 273, 230},
     ExpectedWB = {0, 161, 1024, 863},
     ?assertEqual(ExpectedRB, RB),

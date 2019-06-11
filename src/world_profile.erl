@@ -1,4 +1,4 @@
--module(global_profile).
+-module(world_profile).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -27,29 +27,37 @@
 -type profile()       :: map().
 -type raster_info()   :: map().
 -type zoom_range()    :: 0..32.
+-type world_srs()     :: mercator | geodetic.
 
 -export_type([tile_job_info/0]).
 -export_type([tile_bounds/0]).
 -export_type([profile/0]).
 -export_type([zoom_range/0]).
 
--spec init(mercator | geodetic | {geodetic,tmscomatible} | map()) -> profile().
+-spec init(world_srs() | {geodetic,tmscomatible} | map()) -> profile().
 init(mercator) ->
-    P  = #{ profile => mercator, tileSize => 256 },
+    P  = #{ profile => mercator },
     init(P);
 init(geodetic) ->
-    P  = #{ profile => geodetic, tileSize => 256 },
+    P  = #{ profile => geodetic },
     init(P);
 init({geodetic, tmscompatible}) ->
-    P  = #{ profile => geodetic, tileSize => 256, tmscompatible => true },
+    P  = #{ profile => geodetic, tmscompatible => true },
     init(P);
-init(#{tileSize := TileSize} = P) ->
+init(#{tileSize := _TS, querysize := _QS, profile := _P, tiledriver := _TD, output_dir := _OD} = P) ->
+    P;
+init(P) ->
+    TileSize = maps:get(tileSize, P, 256),
     %% How big should be query window be for scaling down
-    QuerySize = 4 * TileSize,  %% Later on reset according the chosen resampling algorightm
-    P1 = maps:put(querysize, QuerySize, P),
-
-    P2 = maps:put(tiledriver, 'PNG', P1),
-    P2.
+   % QuerySize = 4 * TileSize,  %% Later on reset according the chosen resampling algorightm
+    QuerySize = maps:get(querysize, P, 4 * TileSize),
+    OutputDir = maps:get(output_dir, P, "/tmp"),
+    TileDriver = maps:get(tiledriver, P, 'PNG'),
+    P0 = maps:put(tileSize,   TileSize,   P), 
+    P1 = maps:put(querysize,  QuerySize,  P0),
+    P2 = maps:put(output_dir, OutputDir,  P1),
+    P3 = maps:put(tiledriver, TileDriver, P2),
+    P3.
 
 %% Generation of the base tiles (the lowest in the pyramid) directly from the input raster
 -spec generate_base_tiles(profile(), raster_info()) -> {tile_job_info(), [tile_detail()]}.

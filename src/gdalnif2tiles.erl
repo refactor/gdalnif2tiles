@@ -42,11 +42,11 @@ unique_id() ->
 tmp_vrt_filename(Filename) ->
     lists:flatten(io_lib:format("~ts_~p.vrt", [Filename, unique_id()])).
 
--spec dataset_info(wdataset()) -> global_profile:raster_info().
+-spec dataset_info(wdataset()) -> world_profile:raster_info().
 dataset_info(_Dataset) ->
     erlang:nif_error(notfound).
 
--spec info(wdataset()) -> global_profile:raster_info().
+-spec info(wdataset()) -> world_profile:raster_info().
 info(Dataset) ->
     DI = dataset_info(Dataset),
     #{bandCount := BandCount} = DI,
@@ -65,7 +65,7 @@ get_pixel(_Dataset, _X, _Y) ->
 write_png(_Dataset, _OutputDir) ->
     erlang:nif_error(notfound).
 
--spec open_to(string(), global_profile:profile()) -> reference().
+-spec open_to(string(), world_profile:profile()) -> reference().
 open_to(Filename, #{profile := Profile}) ->
     WDataset = open_with_profile(Filename, Profile),
     Warped = is_warped(WDataset),
@@ -199,7 +199,7 @@ nb_data_bands(_Dataset) ->
 advise_read(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 
--spec create_base_tile(global_profile:tile_job_info(), global_profile:tile_detail()) -> tiled_dataset().
+-spec create_base_tile(world_profile:tile_job_info(), world_profile:tile_detail()) -> tiled_dataset().
 create_base_tile(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 

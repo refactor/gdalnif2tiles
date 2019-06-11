@@ -18,17 +18,17 @@
 -define(TIMEOUT, 30000).
 
 -record(state, {
-          profile :: global_profile:profile(),
+          profile :: world_profile:profile(),
           imgfile :: file:filename(),
           gdal2tiles :: map(),
-          job_info :: global_profile:tile_job_info(),
-          details :: [global_profile:tile_detail()],
-          tiles = [] :: [{gdalnif2tils:tiled_dataset(), global_profile:tile_detail()}]
+          job_info :: world_profile:tile_job_info(),
+          details :: [world_profile:tile_detail()],
+          tiles = [] :: [{gdalnif2tils:tiled_dataset(), world_profile:tile_detail()}]
 }).
 
 %% API.
 
--spec kickoff_tileworkers(file:filename(), global_profile:profile()) -> {ok, pid()}.
+-spec kickoff_tileworkers(file:filename(), world_profile:profile()) -> {ok, pid()}.
 kickoff_tileworkers(Filename, Profile) ->
     ?LOG_INFO("~p:start_link(~p, ~p)...", [?MODULE, Filename, Profile]),
     gen_server:call(?MODULE, {kickoff_tileworkers, Filename, Profile}, ?TIMEOUT).
@@ -49,7 +49,7 @@ handle_call({kickoff_tileworkers, Filename, Profile}, _From, State) ->
     ?LOG_INFO("opened"),
     RasterInfo = gdalnif2tiles:info(WS),
     ?LOG_INFO("infoed"),
-    {JobInfo, Details} = global_profile:generate_base_tiles(Profile, RasterInfo),
+    {JobInfo, Details} = world_profile:generate_base_tiles(Profile, RasterInfo),
     lists:foreach(fun(D) -> gdal2tile_worker_sup:kickoff_tileworker(JobInfo, D) end, Details),
     {reply, ok, State};
 
