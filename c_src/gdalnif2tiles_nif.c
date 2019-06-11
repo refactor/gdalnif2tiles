@@ -155,8 +155,8 @@ ENIF(write_png) {
     }
     
     char filename[256];
-    //snprintf(filename, sizeof(filename), "%s/%d-%d-%d.png", output_dir, tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
-    snprintf(filename, sizeof(filename), "%d.png", tiledDataset->ty);
+    snprintf(filename, sizeof(filename), "%s/%d-%d-%d.png", output_dir, tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
+    //snprintf(filename, sizeof(filename), "%d.png", tiledDataset->ty);
     LOG("filename: %s", filename);
     GDALDriverH pngDriver = GDALGetDriverByName("PNG");
     GDALDatasetH hDstDS = GDALCreateCopy(pngDriver, filename, tiledDataset->dstile, FALSE, NULL, NULL, NULL);

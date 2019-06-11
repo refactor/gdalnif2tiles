@@ -10,7 +10,7 @@
 %% gen_server.
 -export([callback_mode/0]).
 -export([init/1]).
--export([generate_base_tiles/3]).
+-export([generate_base_cells/3]).
 -export([create_base_tiles/3]).
 -export([write_to_png/3]).
 -export([handle_call/3]).
@@ -27,7 +27,7 @@
           gdal2tiles :: map(),
           job_info :: global_profile:tile_job_info(),
           details :: [global_profile:tile_detail()],
-          tiles :: [{gdalnif2tils:tiled_dataset(), global_profile:tile_detail()}]
+          tiles = [] :: [{gdalnif2tils:tiled_dataset(), global_profile:tile_detail()}]
 }).
 
 %% API.
@@ -51,16 +51,16 @@ callback_mode() ->
 init({Filename, Profile}) ->
     ?LOG_DEBUG("~p init for file: ~p, with profile: ~p", [?MODULE, Filename, Profile]),
     process_flag(trap_exit, true),
-    {ok, generate_base_tiles, #state{imgfile = Filename, profile = Profile}, [{next_event, internal, generate_Basetiles}]}.
-%    gen_statem:enter_loop(?MODULE, [], generate_base_tiles, #state{profile = Profile, gdal2tiles = RasterInfo}).
+    {ok, generate_base_cells, #state{imgfile = Filename, profile = Profile}, [{next_event, internal, generate_Basetiles}]}.
+%    gen_statem:enter_loop(?MODULE, [], generate_base_cells, #state{profile = Profile, gdal2tiles = RasterInfo}).
 
-generate_base_tiles(enter, Msg, #state{imgfile = Filename, profile = Profile} = StateData) ->
-    ?LOG_DEBUG("generate_base_tiles entering FROM... ~p", [Msg]),
+generate_base_cells(enter, Msg, #state{imgfile = Filename, profile = Profile} = StateData) ->
+    ?LOG_DEBUG("generate_base_cells entering FROM... ~p", [Msg]),
     WS = gdalnif2tiles:open_to(Filename, Profile),
     RasterInfo = gdalnif2tiles:info(WS),
     {keep_state, StateData#state{gdal2tiles = RasterInfo}};
-generate_base_tiles(internal, Msg, #state{profile = Profile, gdal2tiles = RasterInfo} = StateData) ->
-    ?LOG_DEBUG("generate_base_tiles... ~p", [Msg]),
+generate_base_cells(internal, Msg, #state{profile = Profile, gdal2tiles = RasterInfo} = StateData) ->
+    ?LOG_DEBUG("generate_base_cells... ~p", [Msg]),
     {JobInfo, Details} = global_profile:generate_base_tiles(Profile, RasterInfo),
     {next_state, create_base_tiles, StateData#state{job_info = JobInfo, details = Details}, [{next_event, internal, generatE_basetiles}]};
 ?HANDLE_COMMON.
@@ -71,19 +71,19 @@ create_base_tiles(enter, Msg, StateData) ->
 create_base_tiles(internal, Msg, #state{details = [], tiles = Tiles} = StateData) ->
     ?LOG_DEBUG("DONE create_base_tiles... with msg: ~p", [Msg]),
     {next_state, write_to_png, StateData#state{tiles = Tiles}};
-create_base_tiles(internal, Msg, #state{job_info = JobInfo, details = [D | RestDetails], tiles = Tiles} = StateData) ->
+create_base_tiles(internal, Msg, #state{job_info = JobInfo, details = [D | RestDetails]} = StateData) ->
     ?LOG_DEBUG("create_base_tiles... with msg: ~p", [Msg]),
 %    Tiles = lists:map(fun(D) -> Tile = gdalnif2tiles:create_base_tile(JobInfo, D), {Tile, D} end, Details),
-    Tile = gdalnif2tiles:create_base_tile(JobInfo, D),
-    {keep_state, StateData#state{details = RestDetails, tiles = [{Tile,D} | Tiles]}, [{next_event, internal, create_basetile}]};
+    gdal2tile_worker:start_link(JobInfo, D),
+    {keep_state, StateData#state{details = RestDetails}, [{next_event, internal, create_basetile}]};
 ?HANDLE_COMMON.
 
 write_to_png(enter, Msg, _StateData) ->
     ?LOG_DEBUG("Enter FROM ~p", [Msg]),
     keep_state_and_data;
-write_to_png(EventType, _Msg, #state{tiles = Tiles} = _StateData) ->
-    ?LOG_DEBUG("write_to_png...~p, with: ~p",  [EventType, length(Tiles)]),
-    stop;
+write_to_png(EventType, Msg, #state{tiles = Tiles} = _StateData) ->
+    ?LOG_DEBUG("write_to_png...with event=~p, msg=~p with len: ~p",  [EventType,Msg, length(Tiles)]),
+    keep_state_and_data;
 ?HANDLE_COMMON.
 
 handle_common(EventType, Msg, StateData) ->
@@ -99,8 +99,8 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(Reason, State, Data) ->
-    ?LOG_DEBUG("terminate, reason: ~p, state: ~p, data: ~p", [Reason, State, Data]),
+terminate(Reason, State, _Data) ->
+    ?LOG_INFO("terminate, reason: ~p, froM state: ~p", [Reason, State]),
     ok.
 
 code_change(_OldVsn, State, Data, _Extra) ->
