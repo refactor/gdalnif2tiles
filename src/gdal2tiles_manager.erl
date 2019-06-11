@@ -1,25 +1,21 @@
 -module(gdal2tiles_manager).
--behaviour(gen_statem).
+-behaviour(gen_server).
 
 -include_lib("kernel/include/logger.hrl").
 
 %% API.
--export([start_link/2]).
--export([stop/1]).
+-export([kickoff_tileworkers/2]).
+-export([start_link/0]).
 
 %% gen_server.
--export([callback_mode/0]).
 -export([init/1]).
--export([generate_base_cells/3]).
--export([create_base_tiles/3]).
--export([write_to_png/3]).
 -export([handle_call/3]).
 -export([handle_cast/2]).
 -export([handle_info/2]).
--export([terminate/3]).
--export([code_change/4]).
+-export([terminate/2]).
+-export([code_change/3]).
 
--define(TIMEOUT, 5000).
+-define(TIMEOUT, 9000).
 
 -record(state, {
           profile :: global_profile:profile(),
@@ -32,63 +28,30 @@
 
 %% API.
 
--spec start_link(file:filename(), global_profile:profile()) -> {ok, pid()}.
-start_link(Filename, Profile) ->
-    ?LOG_DEBUG("~p:start_link(~p, ~p)...", [?MODULE, Filename, Profile]),
-    gen_statem:start_link(?MODULE, {Filename, Profile}, []).
+-spec kickoff_tileworkers(file:filename(), global_profile:profile()) -> {ok, pid()}.
+kickoff_tileworkers(Filename, Profile) ->
+    ?LOG_INFO("~p:start_link(~p, ~p)...", [?MODULE, Filename, Profile]),
+    gen_server:call(?MODULE, {kickoff_tileworkers, Filename, Profile}, ?TIMEOUT).
 %    {ok, proc_lib:spawn_link(?MODULE, init, [{Filename, Profile}])}.
 
-stop(Pid) ->
-    gen_statem:stop(Pid).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% gen_statem.
+%% gen_server.
 
--define(HANDLE_COMMON, ?FUNCTION_NAME(T,C,D) -> handle_common(T,C,D)).
-
-callback_mode() ->
-    [state_functions, state_enter].
-
-init({Filename, Profile}) ->
-    ?LOG_DEBUG("~p init for file: ~p, with profile: ~p", [?MODULE, Filename, Profile]),
+init([]) ->
     process_flag(trap_exit, true),
-    {ok, generate_base_cells, #state{imgfile = Filename, profile = Profile}, [{next_event, internal, generate_Basetiles}]}.
-%    gen_statem:enter_loop(?MODULE, [], generate_base_cells, #state{profile = Profile, gdal2tiles = RasterInfo}).
+    {ok, #state{}}.
 
-generate_base_cells(enter, Msg, #state{imgfile = Filename, profile = Profile} = StateData) ->
-    ?LOG_DEBUG("generate_base_cells entering FROM... ~p", [Msg]),
+handle_call({kickoff_tileworkers, Filename, Profile}, _From, State) ->
+    ?LOG_INFO("~p kickoff for file: ~p, with profile: ~p", [?MODULE, Filename, Profile]),
     WS = gdalnif2tiles:open_to(Filename, Profile),
+    ?LOG_INFO("opened"),
     RasterInfo = gdalnif2tiles:info(WS),
-    {keep_state, StateData#state{gdal2tiles = RasterInfo}};
-generate_base_cells(internal, Msg, #state{profile = Profile, gdal2tiles = RasterInfo} = StateData) ->
-    ?LOG_DEBUG("generate_base_cells... ~p", [Msg]),
+    ?LOG_INFO("infoed"),
     {JobInfo, Details} = global_profile:generate_base_tiles(Profile, RasterInfo),
-    {next_state, create_base_tiles, StateData#state{job_info = JobInfo, details = Details}, [{next_event, internal, generatE_basetiles}]};
-?HANDLE_COMMON.
-
-create_base_tiles(enter, Msg, StateData) ->
-    ?LOG_DEBUG("create_base_tiles entering FROM... ~p", [Msg]),
-    {keep_state, StateData};
-create_base_tiles(internal, Msg, #state{details = [], tiles = Tiles} = StateData) ->
-    ?LOG_DEBUG("DONE create_base_tiles... with msg: ~p", [Msg]),
-    {next_state, write_to_png, StateData#state{tiles = Tiles}};
-create_base_tiles(internal, Msg, #state{job_info = JobInfo, details = [D | RestDetails]} = StateData) ->
-    ?LOG_DEBUG("create_base_tiles... with msg: ~p", [Msg]),
-%    Tiles = lists:map(fun(D) -> Tile = gdalnif2tiles:create_base_tile(JobInfo, D), {Tile, D} end, Details),
-    gdal2tile_worker:start_link(JobInfo, D),
-    {keep_state, StateData#state{details = RestDetails}, [{next_event, internal, create_basetile}]};
-?HANDLE_COMMON.
-
-write_to_png(enter, Msg, _StateData) ->
-    ?LOG_DEBUG("Enter FROM ~p", [Msg]),
-    keep_state_and_data;
-write_to_png(EventType, Msg, #state{tiles = Tiles} = _StateData) ->
-    ?LOG_DEBUG("write_to_png...with event=~p, msg=~p with len: ~p",  [EventType,Msg, length(Tiles)]),
-    keep_state_and_data;
-?HANDLE_COMMON.
-
-handle_common(EventType, Msg, StateData) ->
-    ?LOG_WARNING("unhandled event: ~p, msg: ~p, state: ~p", [EventType, Msg, StateData]),
-    keep_state_and_data.
+    lists:foreach(fun(D) -> gdal2tile_worker_sup:kickoff_tileworker(JobInfo, D) end, Details),
+    {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -99,9 +62,9 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(Reason, State, _Data) ->
+terminate(Reason, State) ->
     ?LOG_INFO("terminate, reason: ~p, froM state: ~p", [Reason, State]),
     ok.
 
-code_change(_OldVsn, State, Data, _Extra) ->
-    {ok, State, Data}.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.

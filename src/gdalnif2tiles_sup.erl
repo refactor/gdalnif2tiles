@@ -3,8 +3,6 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([kickoff_tileworker/2]).
-
 -export([start_link/0]).
 -export([init/1]).
 
@@ -12,15 +10,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ?LOG_DEBUG("supervisor init..."),
+    ?LOG_DEBUG("app supervisor init..."),
     Procs = [#{id => gdal2tiles_manager,
                start => {gdal2tiles_manager, start_link, []},
                type => worker,
-               modules => [gdaltiles_worker]
+               modules => [gdal2tiles_manager]
+              }, 
+             #{id => gdal2tile_worker_sup,
+               start => {gdal2tile_worker_sup, start_link, []},
+               type => supervisor,
+               modules => [gdal2tile_worker_sup, gdal2tile_worker]
               }],
-    {ok, {{simple_one_for_one, 10, 3600}, Procs}}.
-
-kickoff_tileworker(Filename, Profile) ->
-    ?LOG_DEBUG("kickoff for file: ~ts, with profile: ~p", [Filename, Profile]),
-    supervisor:start_child(?MODULE, [Filename, Profile]).
+    SupFlags = #{strategy => one_for_one, intensity => 1, period => 5},
+    {ok, {SupFlags, Procs}}.
 
