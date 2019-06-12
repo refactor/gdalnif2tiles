@@ -40,7 +40,8 @@ init({JobInfo,TileDetail}) ->
 
 create_base_tile(internal, Msg, #state{job_info = JobInfo, tile_detail = D} = StateData) ->
     ?LOG_DEBUG("from msg: ~p, job_info: ~p, tile_detail: ~p", [Msg, JobInfo, D]),
-    Tile = gdalnif2tiles:create_base_tile(JobInfo, D),
+    TilePart = gdalnif2tiles:create_base_tile(JobInfo, D),
+    Tile = gdalnif2tiles:build_tile(TilePart),
     {next_state, store_base_tile, StateData#state{tile = Tile}, [{next_event, internal, by_create_basetile}]};
 ?HANDLE_COMMON.
 

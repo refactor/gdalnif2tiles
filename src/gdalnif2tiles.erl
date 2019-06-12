@@ -8,6 +8,7 @@
 -export([open_to/2]).
 -export([advise_read/2]).
 -export([create_base_tile/2]).
+-export([build_tile/1]).
 
 -export([unique_id/0]).
 -export([tmp_vrt_filename/1]).
@@ -201,5 +202,8 @@ advise_read(_TileJobInfo, _TileDetail) ->
 
 -spec create_base_tile(world_profile:tile_job_info(), world_profile:tile_detail()) -> tiled_dataset().
 create_base_tile(_TileJobInfo, _TileDetail) ->
+    erlang:nif_error(notfound).
+
+build_tile(_TileParts) ->
     erlang:nif_error(notfound).
 
