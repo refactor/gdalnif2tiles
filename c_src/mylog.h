@@ -1,6 +1,8 @@
 #pragma once
 
-#ifdef NDEBUG
+#define _GNU_SOURCE
+
+#ifdef MYDEBUG
 
 #define LOG(fmt, ...)
 #define WARN(fmt, ...)
@@ -51,7 +53,6 @@
         })
 
 #else
-#define _GNU_SOURCE
 #include <unistd.h>
 
 #include <sys/syscall.h>

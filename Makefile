@@ -3,6 +3,7 @@ PROJECT_DESCRIPTION = try 2tiles
 PROJECT_VERSION = 0.1.0
 
 CFLAGS += -std=c11 `pkg-config --cflags gdal`
+CFLAGS +=-DMYDEBUG
 LDLIBS += `pkg-config --libs gdal`
 
 CSOURCE = $(wildcard c_src/*.c)

@@ -25,7 +25,7 @@
 
 -spec start_link(world_profile:tile_job_info(), world_profile:tile_detail()) -> {ok, pid()}.
 start_link(JobInfo, TileDetail) ->
-    gdalnif2tiles:advise_read(JobInfo, TileDetail),
+%    gdalnif2tiles:advise_read(JobInfo, TileDetail),
     gen_statem:start_link(?MODULE, {JobInfo,TileDetail}, []).
 
 %% gen_statem.

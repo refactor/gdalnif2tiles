@@ -44,9 +44,9 @@ init(geodetic) ->
 init({geodetic, tmscompatible}) ->
     P  = #{ profile => geodetic, tmscompatible => true },
     init(P);
-init(#{tileSize := _TS, querysize := _QS, profile := _P, tiledriver := _TD, output_dir := _OD} = P) ->
-    P;
-init(P) ->
+init(#{profile := _, tileSize := _TS, querysize := _QS, tiledriver := _TD, output_dir := _OD} = WP) ->
+    WP;
+init(#{profile := _} = P) ->
     TileSize = maps:get(tileSize, P, 256),
     %% How big should be query window be for scaling down
    % QuerySize = 4 * TileSize,  %% Later on reset according the chosen resampling algorightm
