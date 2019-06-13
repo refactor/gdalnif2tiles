@@ -12,17 +12,9 @@
 
 void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
     if (eErrClass <= CE_Warning) {
-#ifdef MYDEBUG
-        enif_fprintf(stdout, "GDAL.errno: %d, %s\r\n", errNo, msg);
-#else
         WARN_LOG("GDAL.errno: %d, %s", errNo, msg);
-#endif
     } else {
-#ifdef MYDEBUG
-        enif_fprintf(stdout, "GDAL.errno: %d, %s\r\n", errNo, msg);
-#else
         ERR_LOG("GDAL.errno: %d, %s", errNo, msg);
-#endif
     }
 }
 
