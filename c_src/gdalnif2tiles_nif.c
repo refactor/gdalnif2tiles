@@ -184,7 +184,7 @@ ENIF(write_png) {
         WARN("unknown info(%T)", argv[0]);
         return enif_make_badarg(env);
     }
-    LOG("tz: %u, tx: %u, ty: %u", tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
+
     char output_dir[128];
     if (!enif_get_string(env, argv[1], output_dir, sizeof(output_dir), ERL_NIF_LATIN1)) {
         return enif_make_badarg(env);
@@ -570,7 +570,7 @@ ENIF(advise_read) {
     return ATOM_OK;
 }
 
-ENIF(create_base_tile) {
+ENIF(extract_base_tile) {
     const uint32_t tile_size = get_mapvalue(env, argv[0], "tileSize");
     const uint32_t querysize = get_mapvalue(env, argv[0], "querysize");
     if (querysize == UINT32_MAX)
@@ -616,6 +616,8 @@ ENIF(create_base_tile) {
         .dataBandsCount = dataBandsCount,
         .tilebands = tilebands,
         .transparent = true,
+        .datatype = GDT_Byte,
+        .alphatype = GDT_Byte
     };
     ERL_NIF_TERM ret = enif_make_resource(env, tds);
     enif_release_resource(tds);
@@ -746,7 +748,6 @@ ENIF(build_tile) {
                 tda->dataBandsCount, panBandMap,
                 0, 0, 0);
         if (res == CE_Failure) {
-            enif_fprintf(stdout,"fail to write data to dsquery: tda->data=%p", tda->data);
             return enif_raise_exception(env,
                     enif_make_tuple3(env,
                         enif_make_atom(env, "dsquery_write_error"),
@@ -850,9 +851,9 @@ static ErlNifFunc nif_funcs[] = {
     {"nb_data_bands",     1, nb_data_bands,     0},
     {"dataset_info",      1, dataset_info,      ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"band_info",         2, band_info,         ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"advise_read",       2, advise_read,  ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"create_base_tile",  2, create_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"build_tile",  1, build_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"advise_read",       2, advise_read,       ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"extract_base_tile",  2, extract_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"build_tile",        1, build_tile,        ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"write_png",         2, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_pixel",         3, get_pixel,         0}
 };

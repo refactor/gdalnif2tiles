@@ -7,7 +7,7 @@
 -export([get_pixel/3]).
 -export([open_to/2]).
 -export([advise_read/2]).
--export([create_base_tile/2]).
+-export([extract_base_tile/2]).
 -export([build_tile/1]).
 
 -export([unique_id/0]).
@@ -19,8 +19,11 @@
 
 -type wdataset() :: reference().
 -type tiled_dataset() :: reference().
+-type tiled_parts() :: reference().
 
 -export_type([wdataset/0]).
+-export_type([tiled_dataset/0]).
+-export_type([tiled_parts/0]).
 
 -on_load(init/0).
 
@@ -200,10 +203,11 @@ nb_data_bands(_Dataset) ->
 advise_read(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 
--spec create_base_tile(world_profile:tile_job_info(), world_profile:tile_detail()) -> tiled_dataset().
-create_base_tile(_TileJobInfo, _TileDetail) ->
+-spec extract_base_tile(world_profile:tile_job_info(), world_profile:tile_detail()) -> tiled_parts().
+extract_base_tile(_TileJobInfo, _TileDetail) ->
     erlang:nif_error(notfound).
 
+-spec build_tile(tiled_parts()) -> tiled_dataset().
 build_tile(_TileParts) ->
     erlang:nif_error(notfound).
 

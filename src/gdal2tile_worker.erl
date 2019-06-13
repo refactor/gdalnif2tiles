@@ -18,6 +18,7 @@
 -record(state, {
           job_info :: world_profile:tile_job_info(),
           tile_detail :: world_profile:tile_detail(),
+          tiled_parts :: gdalnif2tiles:tiled_parts(),
           tile :: gdalnif2tiles:tiled_dataset()
 }).
 
@@ -26,7 +27,8 @@
 -spec start_link(world_profile:tile_job_info(), world_profile:tile_detail()) -> {ok, pid()}.
 start_link(JobInfo, TileDetail) ->
 %    gdalnif2tiles:advise_read(JobInfo, TileDetail),
-    gen_statem:start_link(?MODULE, {JobInfo,TileDetail}, []).
+    TilePart = gdalnif2tiles:extract_base_tile(JobInfo, TileDetail),
+    gen_statem:start_link(?MODULE, {JobInfo,TileDetail,TilePart}, []).
 
 %% gen_statem.
 
@@ -35,12 +37,11 @@ callback_mode() ->
 
 -define(HANDLE_COMMON, ?FUNCTION_NAME(T,C,D) -> handle_common(T,C,D)).
 
-init({JobInfo,TileDetail}) ->
-    {ok, create_base_tile, #state{job_info = JobInfo, tile_detail = TileDetail}, [{next_event, internal, by_init}]}.
+init({JobInfo,TileDetail,TilePart}) ->
+    {ok, create_base_tile, #state{job_info = JobInfo, tile_detail = TileDetail, tiled_parts = TilePart}, [{next_event, internal, by_init}]}.
 
-create_base_tile(internal, Msg, #state{job_info = JobInfo, tile_detail = D} = StateData) ->
+create_base_tile(internal, Msg, #state{job_info = JobInfo, tile_detail = D, tiled_parts = TilePart} = StateData) ->
     ?LOG_DEBUG("from msg: ~p, job_info: ~p, tile_detail: ~p", [Msg, JobInfo, D]),
-    TilePart = gdalnif2tiles:create_base_tile(JobInfo, D),
     Tile = gdalnif2tiles:build_tile(TilePart),
     {next_state, store_base_tile, StateData#state{tile = Tile}, [{next_event, internal, by_create_basetile}]};
 ?HANDLE_COMMON.
