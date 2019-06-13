@@ -56,15 +56,16 @@
 
 #ifdef MYDEBUG
 
-#define LOG(fmt, ...)
+#define DBG(fmt, ...)
 #define WARN(fmt, ...)
 
 #else
 
-#define LOG(fmt, ...) enif_fprintf(stdout, GREY("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
+#define DBG(fmt, ...) enif_fprintf(stdout, GREY("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
 #define WARN(fmt, ...) enif_fprintf(stdout, B_MAGENTA("[%34s#%-5d@(tid:%llx)]") " " fmt "\r\n", __FUNCTION__,__LINE__,thrd_id(), ##__VA_ARGS__)
 
 #endif
 
-#define WARN_LOG(fmt, ...) enif_fprintf(stdout, B_YELLOW("[@(tid:%llx)]") " " YELLOW(fmt) "\r\n", thrd_id(), ##__VA_ARGS__)
-#define ERR_LOG(fmt, ...) enif_fprintf(stdout, B_RED("[@(tid:%llx)]") " " RED(fmt) "\r\n", thrd_id(), ##__VA_ARGS__)
+#define INFO_LOG(fmt, ...) enif_fprintf(stderr, "[@(tid:%llx)] " fmt "\r\n", thrd_id(), ##__VA_ARGS__)
+#define WARN_LOG(fmt, ...) enif_fprintf(stderr, B_YELLOW("[@(tid:%llx)] " fmt) "\r\n", thrd_id(), ##__VA_ARGS__)
+#define ERR_LOG(fmt, ...) enif_fprintf(stderr, B_RED("[@(tid:%llx)] " fmt) "\r\n", thrd_id(), ##__VA_ARGS__)

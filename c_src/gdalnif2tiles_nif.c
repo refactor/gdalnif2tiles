@@ -38,15 +38,15 @@ static inline bool is_warped_dataset(const WarpedDataset *warpedDataset) {
 
 static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
     WarpedDataset *warpedDataset = (WarpedDataset*)obj;
-    LOG("warpedDataset res -> %p", warpedDataset);
+    INFO_LOG("destroy warpedDataset -> %p", warpedDataset);
     if (is_warped_dataset(warpedDataset) && warpedDataset->warped_input_dataset) {
-        LOG("close warped_input_dataset: %p", warpedDataset->warped_input_dataset);
+        DBG("close warped_input_dataset: %p", warpedDataset->warped_input_dataset);
         GDALClose(warpedDataset->warped_input_dataset);
     }
     warpedDataset->warped_input_dataset = NULL;
 
     if (strncmp(warpedDataset->vmfilename, "/vsimem/", 8) == 0) {
-        LOG("delete memFile: %s", warpedDataset->vmfilename);
+        DBG("delete memFile: %s", warpedDataset->vmfilename);
         VSIUnlink(warpedDataset->vmfilename);
     }
     if (warpedDataset->output_srs) {
@@ -54,12 +54,12 @@ static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
         warpedDataset->output_srs = NULL;
     }
     if (warpedDataset->raw_input_dataset) {
-        LOG("close raw_input_dataset: %p", warpedDataset->raw_input_dataset);
+        DBG("close raw_input_dataset: %p", warpedDataset->raw_input_dataset);
         GDALClose(warpedDataset->raw_input_dataset);
         warpedDataset->raw_input_dataset = NULL;
     }
     if (warpedDataset->nodata) {
-        LOG("free nodata...%p", warpedDataset->nodata);
+        DBG("free nodata...%p", warpedDataset->nodata);
         enif_free(warpedDataset->nodata);
         warpedDataset->nodata = NULL;
     }
@@ -75,8 +75,9 @@ typedef struct tiled_dataset {
 
 static void tiled_dataset_dtor(ErlNifEnv *env, void* obj) {
     tiled_dataset *tds = (tiled_dataset*)obj;
+    INFO_LOG("destroy tiled_dataset -> %p", obj);
     if (tds->dstile) {
-        LOG("close tiled dataset -> ", tds->dstile);
+        DBG("close tiled dataset -> ", tds->dstile);
         GDALClose(tds->dstile);
         tds->dstile = NULL;
     }
@@ -103,13 +104,14 @@ typedef struct tiled_dataset_assemblypart {
 
 static void tiled_dataset_parts_dtor(ErlNifEnv *env, void* obj) {
     tiled_dataset_assemblypart *part = (tiled_dataset_assemblypart*)obj;
+    INFO_LOG("destroy tile_parts -> %p", obj);
     if (part->data) {
-        LOG("close tiled dataset -> ", part->data);
+        DBG("close tiled dataset -> ", part->data);
         CPLFree(part->data);
         part->data = NULL;
     }
     if (part->alpha) {
-        LOG("close tiled dataset -> ", part->alpha);
+        DBG("close tiled dataset -> ", part->alpha);
         CPLFree(part->alpha);
         part->alpha = NULL;
     }
@@ -124,7 +126,7 @@ nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
         int successFlag = 0;
         GDALRasterBandH hBand = GDALGetRasterBand(hDataset, i);
         nodata->nodata[i - 1] = GDALGetRasterNoDataValue(hBand, &successFlag);
-        LOG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
+        DBG("band.%d NODATA: %f, sucess: %d", i, nodata->nodata[i - 1], successFlag);
         if (!successFlag) {
             WARN("band.%d: NOT sucess get NODATA ... BUT get this: %f", i, nodata->nodata[i - 1]);
             enif_free(nodata);
@@ -193,7 +195,7 @@ ENIF(write_png) {
     char filename[256];
     snprintf(filename, sizeof(filename), "%s/%d-%d-%d.png", output_dir, tiledDataset->tz, tiledDataset->tx, tiledDataset->ty);
     //snprintf(filename, sizeof(filename), "%d.png", tiledDataset->ty);
-    LOG("filename: %s", filename);
+    DBG("filename: %s", filename);
     GDALDriverH pngDriver = GDALGetDriverByName("PNG");
     GDALDatasetH hDstDS = GDALCreateCopy(pngDriver, filename, tiledDataset->dstile, FALSE, NULL, NULL, NULL);
     if (hDstDS != NULL) GDALClose(hDstDS);
@@ -222,7 +224,7 @@ ENIF(dataset_info) {
     if (hDataset == NULL)
         return enif_raise_exception(env, enif_make_string(env, "NULL warped_input_dataset", ERL_NIF_LATIN1));
 
-    LOG("dataset_info success, dataset -> %p", hDataset);
+    DBG("dataset_info success, dataset -> %p", hDataset);
     GDALDriverH hDriver = GDALGetDatasetDriver(hDataset);
     ERL_NIF_TERM res = enif_make_new_map(env);
     enif_make_map_put(env, res, enif_make_atom(env, "driverShortName"),
@@ -275,7 +277,7 @@ ENIF(dataset_info) {
     }
 
     VSIStatBufL statBuf;
-    LOG("GetFileList....");
+    DBG("GetFileList....");
     CSLConstList files = GDALGetFileList(hDataset);
     int filecount = CSLCount(files);
     ERL_NIF_TERM filenames[filecount];
@@ -316,7 +318,7 @@ ENIF(band_info) {
     if (!enif_get_int(env, argv[1], &bandNo)) {
         return enif_make_badarg(env);
     }
-    LOG("success: warped_input_dataset -> %p, for band# %d", hDataset, bandNo);
+    DBG("success: warped_input_dataset -> %p, for band# %d", hDataset, bandNo);
     GDALRasterBandH hBand = GDALGetRasterBand(hDataset, bandNo);
 
     ERL_NIF_TERM res = enif_make_new_map(env);
@@ -336,7 +338,7 @@ ENIF(band_info) {
                       &res);
 
     enif_make_map_put(env, res, enif_make_atom(env, "pixelDatatype"),
-            enif_make_atom(env, rasterDataType(GDALGetRasterDataType(hBand))),
+            enif_make_atom(env, GDALGetDataTypeName(GDALGetRasterDataType(hBand))),
             &res);
     int bGotMin, bGotMax;
     double adfMinMax[2] = {
@@ -378,7 +380,7 @@ static inline WarpedDataset* reprojectTo(WarpedDataset *warpedDataset, const GDA
     }
 
     warpedDataset->raw_input_dataset = hSrsDS;
-    LOG("warped: %d", is_warped_dataset(warpedDataset));
+    DBG("warped: %d", is_warped_dataset(warpedDataset));
     warpedDataset->nodata = extract_nodatavalues(hSrsDS);
 
     warpedDataset->output_srs = output_srs;
@@ -391,10 +393,10 @@ ENIF(open_with_profile) {
         return enif_raise_exception(env,
             enif_make_string(env, "No input file was specified", ERL_NIF_LATIN1));
     
-    LOG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
-    LOG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
+    DBG("opening... CPLIsFilenameRelative: %d", CPLIsFilenameRelative(filename));
+    DBG("CPLFormFilename:%s", CPLFormFilename(NULL, filename, NULL));
     GDALDatasetH hDataset = GDALOpen(filename, GA_ReadOnly);
-    LOG("raw hDataset -> %p", hDataset);
+    DBG("raw hDataset -> %p", hDataset);
     if (hDataset == NULL) {
         return enif_raise_exception(env,
             enif_make_string(env, "It is not possible to open the input file", ERL_NIF_LATIN1));
@@ -417,7 +419,7 @@ ENIF(open_with_profile) {
     if (snprintf(warpedDataset->vmfilename, sizeof(warpedDataset->vmfilename), "/vsimem/tmp/%s-%d.vrt", CPLGetBasename(filename), ui) < 0) {
         return enif_raise_exception(env, enif_make_string(env, "filename too long", ERL_NIF_LATIN1));
     }
-    LOG("open with vmfilename: %s", warpedDataset->vmfilename);
+    DBG("open with vmfilename: %s", warpedDataset->vmfilename);
 
     return res;
 }
@@ -427,14 +429,14 @@ ENIF(create_vrt_copy) {
     if (!enif_get_resource(env, argv[0], warpedDatasetResType, (void**)&wGDALDataset)) {
         return enif_make_badarg(env);
     }
-    LOG("create-copy an VRT dataset on memfile: %s, is input dataset warped: %d", wGDALDataset->vmfilename, is_warped_dataset(wGDALDataset));
+    DBG("create-copy an VRT dataset on memfile: %s, is input dataset warped: %d", wGDALDataset->vmfilename, is_warped_dataset(wGDALDataset));
     if (strncmp(wGDALDataset->vmfilename, "/vsimem/", 8) == 0) {
         VSIStatBufL statBuf;
         if (CE_None == VSIStatExL(wGDALDataset->vmfilename, &statBuf, 0) && statBuf.st_size > 0) {
             WARN("exists file: %s, skip! ", wGDALDataset->vmfilename);
             return argv[0];
         }
-        LOG("memfile: sz=%d, mode=%d", statBuf.st_size, statBuf.st_mode);
+        DBG("memfile: sz=%d, mode=%d", statBuf.st_size, statBuf.st_mode);
         GDALDriverH vrtDriver =  GDALGetDriverByName("VRT");
         GDALDatasetH hDstDS = GDALCreateCopy(vrtDriver,wGDALDataset->vmfilename, wGDALDataset->warped_input_dataset, FALSE,
                 NULL, NULL, NULL);
@@ -447,7 +449,7 @@ ENIF(create_vrt_copy) {
         hDstDS = GDALOpen(wGDALDataset->vmfilename, GA_ReadOnly);
 
         if (CE_None == VSIStatExL(wGDALDataset->vmfilename, &statBuf, 0)) {
-            LOG("memfile: sz=%d, mode=%d", statBuf.st_size, statBuf.st_mode);
+            DBG("memfile: sz=%d, mode=%d", statBuf.st_size, statBuf.st_mode);
         }
 
         if (is_warped_dataset(wGDALDataset)) {
@@ -472,10 +474,10 @@ ENIF(correct_dataset) {
 
     // mimic the python API: gdal.Open(vrt_string)
     const char *memfilename = warpedDataset->vmfilename;
-    LOG("memfilename: %s", memfilename);
+    DBG("memfilename: %s", memfilename);
     uint8_t *vrt_string = malloc(bin.size);
     memcpy(vrt_string, bin.data, bin.size);
-    //LOG("vrt_string: %s", vrt_string);
+    //DBG("vrt_string: %s", vrt_string);
     VSIFCloseL( VSIFileFromMemBuffer(memfilename, vrt_string, bin.size, TRUE) );
     // no deed to free vrt_string, because the last TRUE means
     // the memory file system handler will take ownership of vrt_string, freeing it when the file is deleted.
@@ -491,7 +493,7 @@ ENIF(correct_dataset) {
         }
     }
 
-    LOG("close old warped_input_dataset(%p), use corrected one(%p)", warpedDataset->warped_input_dataset, correctedDataset);
+    DBG("close old warped_input_dataset(%p), use corrected one(%p)", warpedDataset->warped_input_dataset, correctedDataset);
     GDALClose(warpedDataset->warped_input_dataset); 
     warpedDataset->warped_input_dataset = correctedDataset;
     return argv[0];
@@ -537,10 +539,10 @@ void scale_query_to_tile(GDALDatasetH dsquery, GDALDatasetH dstile) {
 
 ENIF(advise_read) {
     const uint32_t dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
-    LOG("dataBandsCount: %u", dataBandsCount);
+    DBG("dataBandsCount: %u", dataBandsCount);
     WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
     GDALDatasetH ds = warpedDataset->warped_input_dataset;
-    LOG("src GDALDataset: %p, DataType", ds);
+    DBG("src GDALDataset: %p, DataType", ds);
     //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
     //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
     //  querysize => maps:get(querysize, RasterProfile, undefined)}.
@@ -552,8 +554,8 @@ ENIF(advise_read) {
     const uint32_t wy        = get_mapvalue(env, argv[1], "wy");
     const uint32_t wxsize    = get_mapvalue(env, argv[1], "wxsize");
     const uint32_t wysize    = get_mapvalue(env, argv[1], "wysize");
-    LOG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
-    LOG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
+    DBG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
+    DBG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
 
     int panBandMap[dataBandsCount];
     for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
@@ -577,10 +579,10 @@ ENIF(extract_base_tile) {
         return enif_raise_exception(env, enif_make_string(env, "no querysize", ERL_NIF_LATIN1));
 
     const uint32_t dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
-    LOG("tile_size: %u, querysize: %u, dataBandsCount: %u", tile_size, querysize, dataBandsCount);
+    DBG("tile_size: %u, querysize: %u, dataBandsCount: %u", tile_size, querysize, dataBandsCount);
     WarpedDataset *warpedDataset = get_wdataset_res(env, argv[0]);
     GDALDatasetH ds = warpedDataset->warped_input_dataset;
-    LOG("src GDALDataset: %p, DataType", ds);
+    DBG("src GDALDataset: %p, DataType", ds);
     //#{tx => Tx, ty => Ty, tz => TZ, rx => RX, ry => RY, rxsize => RXSize, rysize => RYSize,
     //  wx => WX, wy => WY, wxsize => WXSize, wysize => WYSize,
     //  querysize => maps:get(querysize, RasterProfile, undefined)}.
@@ -595,15 +597,15 @@ ENIF(extract_base_tile) {
     const uint32_t wy        = get_mapvalue(env, argv[1], "wy");
     const uint32_t wxsize    = get_mapvalue(env, argv[1], "wxsize");
     const uint32_t wysize    = get_mapvalue(env, argv[1], "wysize");
-    LOG("tx: %u, ty: %u, tz: %u", tx, ty, tz);
-    LOG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
-    LOG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
+    DBG("tx: %u, ty: %u, tz: %u", tx, ty, tz);
+    DBG("rx: %u, ry: %u, rxsize: %u, rysize: %u", rx, ry, rxsize, rysize);
+    DBG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
 
     const int tilebands = dataBandsCount + 1;
 
     // make dstile GC
-    tiled_dataset_assemblypart *tds = enif_alloc_resource(assemblypartResType, sizeof(*tds));
-    *tds = (tiled_dataset_assemblypart) {
+    tiled_dataset_assemblypart *tda = enif_alloc_resource(assemblypartResType, sizeof(*tda));
+    *tda = (tiled_dataset_assemblypart) {
         .tx = tx,
         .ty = ty,
         .tz = tz,
@@ -619,8 +621,8 @@ ENIF(extract_base_tile) {
         .datatype = GDT_Byte,
         .alphatype = GDT_Byte
     };
-    ERL_NIF_TERM ret = enif_make_resource(env, tds);
-    enif_release_resource(tds);
+    ERL_NIF_TERM ret = enif_make_resource(env, tda);
+    enif_release_resource(tda);
 
     if (rxsize == 0 || rysize == 0 || wxsize == 0 || wysize == 0) {
         WARN("empty tile(tx=%u,ty=%u,tz=%u), just skip it", tx, ty, tz);
@@ -629,19 +631,19 @@ ENIF(extract_base_tile) {
 
     GDALRasterBandH hBand = GDALGetRasterBand(ds, 1);
     GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
-    tds->datatype = GDALGetRasterDataType(hBand);
-    tds->alphatype = GDALGetRasterDataType(alphaband);
-    LOG("band1type=%s, alphatype=%s", GDALGetDataTypeName(tds->datatype), GDALGetDataTypeName(tds->alphatype));
+    tda->datatype = GDALGetRasterDataType(hBand);
+    tda->alphatype = GDALGetRasterDataType(alphaband);
+    DBG("band1type=%s, alphatype=%s", GDALGetDataTypeName(tda->datatype), GDALGetDataTypeName(tda->alphatype));
 
-    tds->alpha = (uint8_t*) CPLCalloc(wxsize * wysize, GDALGetDataTypeSizeBytes(tds->alphatype));
+    tda->alpha = (uint8_t*) CPLCalloc(wxsize * wysize, GDALGetDataTypeSizeBytes(tda->alphatype));
     CPLErr res = GDALRasterIO(alphaband, GF_Read,
             rx, ry, rxsize, rysize,
-            tds->alpha,
+            tda->alpha,
             wxsize, wysize,
-            tds->alphatype,
+            tda->alphatype,
             0,0);
     if (res != CE_None) {
-        CPLFree(tds->alpha); tds->alpha = NULL;
+        CPLFree(tda->alpha); tda->alpha = NULL;
         return enif_raise_exception(env,
                 enif_make_tuple3(env,
                     enif_make_atom(env, "read_alphaband_error"),
@@ -649,27 +651,27 @@ ENIF(extract_base_tile) {
                     enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1)));
     }
     uint32_t sum = 0;
-    for (int i = 0; i < wxsize * wysize; ++i) sum += tds->alpha[i]; // TODO: GDT_Type must be consided
+    for (int i = 0; i < wxsize * wysize; ++i) sum += tda->alpha[i]; // TODO: GDT_Type must be consided
     if (sum == 0) {
         WARN("Detect totally transparent tile(tx=%u,ty=%u,tz=%u) and SHOULD skip its creation",tx,ty,tz);
-        CPLFree(tds->alpha); tds->alpha = NULL;
+        CPLFree(tda->alpha); tda->alpha = NULL;
         return ret;
     }
 
-    tds->data = (uint8_t*) CPLCalloc(wxsize * wysize * dataBandsCount, GDALGetDataTypeSizeBytes(tds->datatype));
+    tda->data = (uint8_t*) CPLCalloc(wxsize * wysize * dataBandsCount, GDALGetDataTypeSizeBytes(tda->datatype));
     int panBandMap[dataBandsCount];
     for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
     res = GDALDatasetRasterIO(ds, GF_Read, 
             rx, ry, rxsize, rysize,
-            tds->data, wxsize, wysize,
-            tds->datatype,
+            tda->data, wxsize, wysize,
+            tda->datatype,
             dataBandsCount, panBandMap,
             0, 0, 0);
- //   LOG("data: %s", CPLBinaryToHex(wxsize * wysize, data));
+ //   DBG("data: %s", CPLBinaryToHex(wxsize * wysize, data));
     if (res == CE_Failure) {
         WARN("fail to read dataset raster. errno=%d", CPLGetLastErrorNo());
-        CPLFree(tds->alpha); tds->alpha = NULL;
-        CPLFree(tds->data); tds->data = NULL;
+        CPLFree(tda->alpha); tda->alpha = NULL;
+        CPLFree(tda->data); tda->data = NULL;
         return enif_raise_exception(env,
                 enif_make_tuple3(env,
                     enif_make_atom(env, "dataset_read_error"),
@@ -679,7 +681,7 @@ ENIF(extract_base_tile) {
 
     // if data:
     // TODO: 1. different GDT_Type; 2. try async read
-    tds->transparent = false;
+    tda->transparent = false;
     return ret;
 }
 
@@ -702,7 +704,7 @@ ENIF(build_tile) {
     enif_release_resource(tds);
 
     if (tda->transparent) {
-        WARN("empty tile(tx=%u,ty=%u,tz=%u), just skip it", tda->tx, tda->ty, tz);
+        WARN("empty tile(tx=%u,ty=%u,tz=%u), just skip it", tda->tx, tda->ty, tda->tz);
         return ret;
     }
 
@@ -820,12 +822,12 @@ static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
     CPLSetErrorHandler(MyGDALErrorHandler);
     const char* gdalRuntimeReleaseName = GDALVersionInfo("GDAL_RELEASE_NAME");
     const char* gdalRuntimeVersionNum  = GDALVersionInfo("VERSION_NUM");
-    LOG("GDAL release name %s", gdalRuntimeReleaseName);
-    LOG("GDAL version num: %s", gdalRuntimeVersionNum);
+    DBG("GDAL release name %s", gdalRuntimeReleaseName);
+    DBG("GDAL version num: %s", gdalRuntimeVersionNum);
     int res = GDALCheckVersion(2, 4, "WHAT the hell..., egdal2tiles");
-    LOG("check 2.4 version: %d", res);
+    DBG("check 2.4 version: %d", res);
     res = GDALCheckVersion(3, 0, "what the hell...");
-    LOG("check 3.0 version: %d", res);
+    DBG("check 3.0 version: %d", res);
 
     warpedDatasetResType = enif_open_resource_type(env, NULL, "warpedDataset", warped_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
     tiledDatasetResType = enif_open_resource_type(env, NULL, "tiledDataset", tiled_dataset_dtor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);

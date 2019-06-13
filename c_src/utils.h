@@ -65,7 +65,7 @@ static inline GDALDatasetH reprojectDataset(const GDALDatasetH hSrcDS, OGRSpatia
     else {
         char *pszDstSRSWKT = NULL;
         OSRExportToWkt(dstSRS, &pszDstSRSWKT);
-        LOG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose), the work are lengthy");
+        DBG("Warping of the raster by AutoCreateWarpedVRT (result saved into 'tiles.vrt' for verbose), the work are lengthy");
         hDstDS = GDALAutoCreateWarpedVRT(hSrcDS,
                                          srcSRSWKT, pszDstSRSWKT,
                                          GRA_NearestNeighbour,
@@ -76,28 +76,5 @@ static inline GDALDatasetH reprojectDataset(const GDALDatasetH hSrcDS, OGRSpatia
     }
     OSRDestroySpatialReference(srcSRS);
     return hDstDS;
-}
-
-static inline const char* rasterDataType(GDALDataType datatype) {
-    switch (datatype) {
-        case GDT_Float32:
-            return "float32";
-        case GDT_Float64:
-            return "float64";
-        case GDT_Byte:
-            return "byte";
-        case GDT_UInt16:
-            return "uint16";
-        case GDT_Int16:
-            return "int16";
-        case GDT_UInt32:
-            return "uint32";
-        case GDT_Int32:
-            return "int32";
-        case GDT_Unknown:
-            return "unknow";
-        default:
-            return "complex ignored";
-    }
 }
 
