@@ -18,7 +18,7 @@ void MyGDALErrorHandler(CPLErr eErrClass, int errNo, const char *msg) {
     }
 }
 
-#define ENIF(name) static ERL_NIF_TERM name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+#define ENIF(name) static ERL_NIF_TERM name(ErlNifEnv* env, int __attribute__((unused)) argc, const ERL_NIF_TERM argv[])
 
 static ERL_NIF_TERM ATOM_OK;
 static ERL_NIF_TERM ATOM_TRUE;
@@ -36,7 +36,7 @@ static inline bool is_warped_dataset(const WarpedDataset *warpedDataset) {
         (warpedDataset->raw_input_dataset != warpedDataset->warped_input_dataset);
 }
 
-static void warped_dataset_dtor(ErlNifEnv *env, void* obj) {
+static void warped_dataset_dtor(ErlNifEnv * __attribute__((unused)) env, void* obj) {
     WarpedDataset *warpedDataset = (WarpedDataset*)obj;
     INFO_LOG("destroy warpedDataset -> %p", warpedDataset);
     if (is_warped_dataset(warpedDataset) && warpedDataset->warped_input_dataset) {
@@ -73,7 +73,7 @@ typedef struct tiled_dataset {
     bool transparent;
 } tiled_dataset;
 
-static void tiled_dataset_dtor(ErlNifEnv *env, void* obj) {
+static void tiled_dataset_dtor(ErlNifEnv * __attribute__((unused)) env, void* obj) {
     tiled_dataset *tds = (tiled_dataset*)obj;
     INFO_LOG("destroy tiled_dataset -> %p", obj);
     if (tds->dstile) {
@@ -102,7 +102,7 @@ typedef struct tiled_dataset_assemblypart {
     uint8_t* alpha;
 } tiled_dataset_assemblypart;
 
-static void tiled_dataset_parts_dtor(ErlNifEnv *env, void* obj) {
+static void tiled_dataset_parts_dtor(ErlNifEnv * __attribute__((unused)) env, void* obj) {
     tiled_dataset_assemblypart *part = (tiled_dataset_assemblypart*)obj;
     INFO_LOG("destroy tile_parts -> %p", obj);
     if (part->data) {
@@ -534,9 +534,6 @@ static inline WarpedDataset* get_wdataset_res(ErlNifEnv *env, ERL_NIF_TERM map) 
     return warpedDataset;
 }
     
-void scale_query_to_tile(GDALDatasetH dsquery, GDALDatasetH dstile) {
-}
-
 ENIF(advise_read) {
     const uint32_t dataBandsCount = get_mapvalue(env, argv[0], "dataBandsCount");
     DBG("dataBandsCount: %u", dataBandsCount);
@@ -558,7 +555,7 @@ ENIF(advise_read) {
     DBG("wx: %u, wy: %u, wxsize: %u, wysize: %u", wx, wy, wxsize, wysize);
 
     int panBandMap[dataBandsCount];
-    for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
+    for (uint32_t i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
     if (CE_None != GDALDatasetAdviseRead(ds, 
                         rx, ry, rxsize, rysize,
                         wxsize, wysize,
@@ -638,8 +635,7 @@ ENIF(extract_base_tile) {
     tda->alpha = (uint8_t*) CPLCalloc(wxsize * wysize, GDALGetDataTypeSizeBytes(tda->alphatype));
     CPLErr res = GDALRasterIO(alphaband, GF_Read,
             rx, ry, rxsize, rysize,
-            tda->alpha,
-            wxsize, wysize,
+            tda->alpha, wxsize, wysize,
             tda->alphatype,
             0,0);
     if (res != CE_None) {
@@ -651,7 +647,7 @@ ENIF(extract_base_tile) {
                     enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1)));
     }
     uint32_t sum = 0;
-    for (int i = 0; i < wxsize * wysize; ++i) sum += tda->alpha[i]; // TODO: GDT_Type must be consided
+    for (uint32_t i = 0; i < wxsize * wysize; ++i) sum += tda->alpha[i]; // TODO: GDT_Type must be consided
     if (sum == 0) {
         WARN("Detect totally transparent tile(tx=%u,ty=%u,tz=%u) and SHOULD skip its creation",tx,ty,tz);
         CPLFree(tda->alpha); tda->alpha = NULL;
@@ -660,7 +656,7 @@ ENIF(extract_base_tile) {
 
     tda->data = (uint8_t*) CPLCalloc(wxsize * wysize * dataBandsCount, GDALGetDataTypeSizeBytes(tda->datatype));
     int panBandMap[dataBandsCount];
-    for (int i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
+    for (uint32_t i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
     res = GDALDatasetRasterIO(ds, GF_Read, 
             rx, ry, rxsize, rysize,
             tda->data, wxsize, wysize,
@@ -686,7 +682,7 @@ ENIF(extract_base_tile) {
 }
 
 ENIF(build_tile) {
-    tiled_dataset_assemblypart *tda = NULL;
+    const tiled_dataset_assemblypart *tda = NULL;
     if (!enif_get_resource(env, argv[0], assemblypartResType, (void**)&tda)) {
         WARN("fail to get assemblypart");
         return enif_make_badarg(env);
@@ -709,7 +705,7 @@ ENIF(build_tile) {
     }
 
     int panBandMap[tda->dataBandsCount];
-    for (int i = 0; i < tda->dataBandsCount; ++i) panBandMap[i] = i + 1;
+    for (uint32_t i = 0; i < tda->dataBandsCount; ++i) panBandMap[i] = i + 1;
     CPLErr res;
     if (tda->tile_size == tda->querysize) {
         res = GDALDatasetRasterIO(dstile, GF_Write,
@@ -771,7 +767,7 @@ ENIF(build_tile) {
                         enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1)));
         }
         //scale_query_to_tile(dsquery, dstile);
-        for (int i = 1; i <= tda->tilebands; ++i) {
+        for (uint32_t i = 1; i <= tda->tilebands; ++i) {
             GDALRasterBandH hDstBand = GDALGetRasterBand(dstile, i);
             if (CE_None != GDALRegenerateOverviews(GDALGetRasterBand(dsquery, i), 1, &hDstBand, "AVERAGE", NULL, NULL)) {
                 return enif_raise_exception(env,
@@ -817,7 +813,7 @@ ENIF(get_pixel) {
     return enif_make_int(env, pixelValue);
 }
 
-static int nifload(ErlNifEnv* env, void **priv_data, ERL_NIF_TERM load_info) {
+static int nifload(ErlNifEnv* env, void ** __attribute__((unused)) priv_data, ERL_NIF_TERM  __attribute__((unused)) load_info) {
     GDALAllRegister();
     CPLSetErrorHandler(MyGDALErrorHandler);
     const char* gdalRuntimeReleaseName = GDALVersionInfo("GDAL_RELEASE_NAME");
@@ -854,7 +850,7 @@ static ErlNifFunc nif_funcs[] = {
     {"dataset_info",      1, dataset_info,      ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"band_info",         2, band_info,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"advise_read",       2, advise_read,       ERL_NIF_DIRTY_JOB_IO_BOUND},
-    {"extract_base_tile",  2, extract_base_tile,  ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"extract_base_tile", 2, extract_base_tile, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"build_tile",        1, build_tile,        ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"write_png",         2, write_png,         ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"get_pixel",         3, get_pixel,         0}

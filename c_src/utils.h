@@ -42,7 +42,7 @@ typedef struct WarpedDataset {
 static void cat_novalues(const nodata_list* nodata, char buf[], size_t buf_sz) {
     char *ptr = buf;
     int n = snprintf(ptr, buf_sz, "%f", nodata->nodata[0]);
-    for (int i = 1; i < nodata->bandCount; ++i) {
+    for (uint32_t i = 1; i < nodata->bandCount; ++i) {
         buf_sz -= n;
         ptr += n;
         n = snprintf(ptr, buf_sz, " %f", nodata->nodata[i]);

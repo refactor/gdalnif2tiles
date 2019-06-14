@@ -15,5 +15,6 @@ config/extra.config
 *.tif
 *.jpg
 ebin/
-data/
 priv/
+deps/
+data/
