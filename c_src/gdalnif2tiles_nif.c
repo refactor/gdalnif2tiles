@@ -631,23 +631,16 @@ ENIF(extract_base_tile) {
     tda->alphatype = GDALGetRasterDataType(alphaband);
     DBG("band1type=%s, alphatype=%s", GDALGetDataTypeName(tda->datatype), GDALGetDataTypeName(tda->alphatype));
 
-    tda->data = (uint8_t*) CPLCalloc( wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(tda->datatype) +
+    tda->data = (uint8_t*) VSICalloc( wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(tda->datatype) +
                 wxsize * wysize * GDALGetDataTypeSizeBytes(tda->alphatype), 1);
 
     tda->alpha = (uint8_t*) ((uintptr_t)tda->data + wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(tda->datatype));
-    CPLErr res = GDALRasterIO(alphaband, GF_Read,
-            rx, ry, rxsize, rysize,
-            tda->alpha, wxsize, wysize,
-            tda->alphatype,
-            0,0);
-    if (res != CE_None) {
-        VSIFree(tda->data); tda->data = NULL;
-        return enif_raise_exception(env,
-                enif_make_tuple3(env,
-                    enif_make_atom(env, "read_alphaband_error"),
-                    enif_make_tuple2(env, enif_make_uint(env, tx), enif_make_uint(env, ty)),
-                    enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1)));
-    }
+    CHECK_RESULT_AND_FREE( GDALRasterIO(alphaband, GF_Read,
+                                        rx, ry, rxsize, rysize,
+                                        tda->alpha, wxsize, wysize,
+                                        tda->alphatype,
+                                        0,0),
+                           tda->data);   // because alpha is tail part of data
     uint32_t sum = 0;
     for (uint32_t i = 0; i < wxsize * wysize; ++i) sum += tda->alpha[i]; // TODO: GDT_Type must be consided
     if (sum == 0) {
@@ -656,28 +649,17 @@ ENIF(extract_base_tile) {
         return ret;
     }
 
-//    tda->data = (uint8_t*) CPLCalloc(wxsize * wysize * dataBandsCount, GDALGetDataTypeSizeBytes(tda->datatype));
     int panBandMap[dataBandsCount];
-    for (uint32_t i = 0; i < dataBandsCount; ++i) panBandMap[i] = i + 1;
-    res = GDALDatasetRasterIO(ds, GF_Read, 
-            rx, ry, rxsize, rysize,
-            tda->data, wxsize, wysize,
-            tda->datatype,
-            dataBandsCount, panBandMap,
-            0, 0, 0);
- //   DBG("data: %s", CPLBinaryToHex(wxsize * wysize, data));
-    if (res == CE_Failure) {
-        WARN("fail to read dataset raster. errno=%d", CPLGetLastErrorNo());
-        VSIFree(tda->data); tda->data = NULL; tda->alpha = NULL;
-        return enif_raise_exception(env,
-                enif_make_tuple3(env,
-                    enif_make_atom(env, "dataset_read_error"),
-                    enif_make_tuple2(env, enif_make_uint(env, tx), enif_make_uint(env, ty)),
-                    enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1)));
-    }
+    for (uint32_t i = 0; i < ARRLEN(panBandMap); ++i) panBandMap[i] = i + 1;
+    CHECK_RESULT_AND_FREE( GDALDatasetRasterIO(ds, GF_Read, 
+                                               rx, ry, rxsize, rysize,
+                                               tda->data, wxsize, wysize,
+                                               tda->datatype,
+                                               ARRLEN(panBandMap), panBandMap,
+                                               0, 0, 0),
+                           tda->data);
 
     // if data:
-    // TODO: 1. different GDT_Type; 2. try async read
     tda->transparent = false;
     return ret;
 }
@@ -689,8 +671,13 @@ ENIF(build_tile) {
         return enif_make_badarg(env);
     }
     GDALDriverH memDriver = GDALGetDriverByName( "MEM" );
-    GDALDatasetH dstile = GDALCreate(memDriver, "",
-            tda->tile_size, tda->tile_size, tda->tilebands, tda->datatype, NULL);
+    GDALDatasetH dstile = NULL;
+    if ( (dstile = GDALCreate(memDriver, "",
+            tda->tile_size, tda->tile_size, tda->tilebands, tda->datatype, NULL) ) == NULL) {
+        ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
+        return enif_raise_exception(env,
+                enif_make_tuple2(env, enif_make_atom(env, "dstile_create_error"), reason));
+    }
 
     tiled_dataset *tds = enif_alloc_resource(tiledDatasetResType, sizeof(*tds));
     tds->dstile = dstile;
@@ -706,85 +693,51 @@ ENIF(build_tile) {
     }
 
     int panBandMap[tda->dataBandsCount];
-    for (uint32_t i = 0; i < tda->dataBandsCount; ++i) panBandMap[i] = i + 1;
-    CPLErr res;
+    for (uint32_t i = 0; i < ARRLEN(panBandMap); ++i) panBandMap[i] = i + 1;
+
     if (tda->tile_size == tda->querysize) {
-        res = GDALDatasetRasterIO(dstile, GF_Write,
-                tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                tda->data, tda->wxsize, tda->wysize,
-                tda->datatype,
-                tda->dataBandsCount, panBandMap,
-                0, 0, 0);
-        if (res == CE_Failure) {
-            ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
-            WARN("fail to write data to dstile: errno=%T", reason);
-            return enif_raise_exception(env,
-                    enif_make_tuple3(env,
-                        enif_make_atom(env, "dstile_write_error"),
-                        enif_make_tuple2(env, enif_make_uint(env, tda->tx), enif_make_uint(env, tda->ty)),
-                        reason));
-        }
-        res = GDALDatasetRasterIO(dstile, GF_Write,
-                tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                tda->alpha, tda->wxsize, tda->wysize,
-                tda->alphatype,
-                1, (int[]){ tda->tilebands },
-                0, 0, 0);
-        if (res == CE_Failure) {
-            ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
-            WARN("fail to write alpha to dstile. error=%T", reason);
-            return enif_raise_exception(env,
-                    enif_make_tuple3(env,
-                        enif_make_atom(env, "dstile_alpha_write_error"),
-                        enif_make_tuple2(env, enif_make_uint(env, tda->tx), enif_make_uint(env, tda->ty)),
-                        reason));
-        }
+        // TODO: build a MEM dataset from tds->data directly
+        CHECK_RESULT( GDALDatasetRasterIO(dstile, GF_Write,
+                                          tda->wx, tda->wy, tda->wxsize, tda->wysize,
+                                          tda->data, tda->wxsize, tda->wysize,
+                                          tda->datatype,
+                                          ARRLEN(panBandMap), panBandMap,
+                                          0, 0, 0));
+        CHECK_RESULT( GDALDatasetRasterIO(dstile, GF_Write,
+                                          tda->wx, tda->wy, tda->wxsize, tda->wysize,
+                                          tda->alpha, tda->wxsize, tda->wysize,
+                                          tda->alphatype,
+                                          1, (int[]){ tda->tilebands },
+                                          0, 0, 0) );
     }
     else {
-        GDALDatasetH dsquery = GDALCreate(memDriver, "", tda->querysize, tda->querysize, tda->tilebands, tda->datatype, NULL);
-        res = GDALDatasetRasterIO(dsquery, GF_Write,
-                tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                tda->data, tda->wxsize, tda->wysize,
-                tda->datatype,
-                tda->dataBandsCount, panBandMap,
-                0, 0, 0);
-        if (res == CE_Failure) {
+        GDALDatasetH dsquery = NULL;
+        if ( (dsquery = GDALCreate(memDriver, "", tda->querysize, tda->querysize, tda->tilebands, tda->datatype, NULL)) == NULL) {
             ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
-            GDALClose(dsquery);
             return enif_raise_exception(env,
-                    enif_make_tuple3(env,
-                        enif_make_atom(env, "dsquery_write_error"),
-                        enif_make_tuple2(env, enif_make_uint(env, tda->tx), enif_make_uint(env, tda->ty)),
-                        reason));
+                    enif_make_tuple2(env, enif_make_atom(env, "dsquery_create_error"), reason));
         }
-        res = GDALDatasetRasterIO(dsquery, GF_Write,
-                tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                tda->alpha, tda->wxsize, tda->wysize,
-                tda->alphatype,
-                1, (int[]){ tda->tilebands },
-                0, 0, 0);
-        if (res == CE_Failure) {
-            ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
-            WARN("fail to write alpha to dsquery. errno=%T", reason);
-            GDALClose(dsquery);
-            return enif_raise_exception(env,
-                    enif_make_tuple3(env,
-                        enif_make_atom(env, "dsquery_alpha_write_error"),
-                        enif_make_tuple2(env, enif_make_uint(env, tda->tx), enif_make_uint(env, tda->ty)),
-                        reason));
-        }
-        //scale_query_to_tile(dsquery, dstile);
+        CHECK_RESULT_AND_CLOSE( GDALDatasetRasterIO(dsquery, GF_Write,
+                                                    tda->wx, tda->wy, tda->wxsize, tda->wysize,
+                                                    tda->data, tda->wxsize, tda->wysize,
+                                                    tda->datatype,
+                                                    ARRLEN(panBandMap), panBandMap,
+                                                    0, 0, 0),
+                                dsquery);
+        CHECK_RESULT_AND_CLOSE( GDALDatasetRasterIO(dsquery, GF_Write,
+                                                    tda->wx, tda->wy, tda->wxsize, tda->wysize,
+                                                    tda->alpha, tda->wxsize, tda->wysize,
+                                                    tda->alphatype,
+                                                    1, (int[]){ tda->tilebands },
+                                                    0, 0, 0),
+                                dsquery);
+
+        // scale_query_to_tile(dsquery, dstile);
         for (uint32_t i = 1; i <= tda->tilebands; ++i) {
+            GDALRasterBandH hSrcBand = GDALGetRasterBand(dsquery, i);
             GDALRasterBandH hDstBand = GDALGetRasterBand(dstile, i);
-            if (CE_None != GDALRegenerateOverviews(GDALGetRasterBand(dsquery, i), 1, &hDstBand, "AVERAGE", NULL, NULL)) {
-                ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);
-                GDALClose(dsquery);
-                return enif_raise_exception(env,
-                        enif_make_tuple3(env,
-                            enif_make_atom(env, "scale_query_to_tile_error"),
-                            enif_make_tuple2(env, enif_make_uint(env, tda->tx), enif_make_uint(env, tda->ty)),
-                            reason));
-            }
+            CHECK_RESULT_AND_CLOSE( GDALRegenerateOverviews(hSrcBand, 1, &hDstBand, "AVERAGE", NULL, NULL),
+                                    dsquery);
         }
         GDALClose(dsquery);
     }

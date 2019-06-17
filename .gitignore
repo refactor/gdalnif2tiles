@@ -1,5 +1,7 @@
 .DS_Store
 data/
+tiled/
+*.md5
 .erlang.mk/
 c_src/env.mk
 erl_crash.dump

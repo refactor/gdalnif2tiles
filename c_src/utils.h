@@ -13,6 +13,39 @@
 
 #include "mylog.h"
 
+#define ARRLEN(arr) (sizeof(arr) / sizeof(arr[0]))
+
+#define CHECK_RESULT(f) do {\
+    CPLErr res = (f);\
+     if (res != CE_None) {\
+        ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);\
+        return enif_raise_exception(env, \
+                enif_make_tuple2(env, enif_make_atom(env, #f), reason));\
+     }\
+} while(0)
+
+#define CHECK_RESULT_AND_CLOSE(f, handle) do {\
+    CPLErr res = (f);\
+     if (res != CE_None) {\
+        ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);\
+        GDALClose(handle);\
+        return enif_raise_exception(env, \
+                enif_make_tuple2(env, enif_make_atom(env, #f), reason));\
+     }\
+} while(0)
+
+#define CHECK_RESULT_AND_FREE(f, tgt) do {\
+    CPLErr res = (f);\
+     if (res != CE_None) {\
+        ERL_NIF_TERM reason = enif_make_string(env, CPLGetLastErrorMsg(), ERL_NIF_LATIN1);\
+        VSIFree(tgt);\
+        tgt = NULL;\
+        return enif_raise_exception(env, \
+                enif_make_tuple2(env, enif_make_atom(env, #f), reason));\
+     }\
+} while(0)
+
+
 /*
  * The no data value for a band is generally a special marker value used to mark pixels that are not valid data.
  * Such pixels should generally not be displayed, nor contribute to analysis operations.
