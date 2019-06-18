@@ -19,4 +19,4 @@ config/extra.config
 ebin/
 priv/
 deps/
-data/
+log/

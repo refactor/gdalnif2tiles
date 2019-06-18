@@ -1,8 +1,6 @@
 -module(gdal2tile_worker_sup).
 -behaviour(supervisor).
 
--include_lib("kernel/include/logger.hrl").
-
 -export([kickoff_tileworker/2]).
 -export([start_link/0]).
 -export([init/1]).
@@ -11,7 +9,7 @@ start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ?LOG_DEBUG("workers supervisor init..."),
+    lager:debug("init....."),
     process_flag(trap_exit, true),
     Procs = [#{id => gdal2tiles_manager,
                start => {gdal2tile_worker, start_link, []},

@@ -1,8 +1,6 @@
 -module(gdal2tiles_manager).
 -behaviour(gen_server).
 
--include_lib("kernel/include/logger.hrl").
-
 %% API.
 -export([kickoff_tileworkers/2]).
 -export([start_link/0]).
@@ -30,7 +28,7 @@
 
 -spec kickoff_tileworkers(file:filename(), world_profile:profile()) -> {ok, pid()}.
 kickoff_tileworkers(Filename, Profile) ->
-    ?LOG_INFO("~p:start_link(~p, ~p)...", [?MODULE, Filename, Profile]),
+    lager:info("~p:start_link(~p, ~p)...", [?MODULE, Filename, Profile]),
     gen_server:call(?MODULE, {kickoff_tileworkers, Filename, Profile}, ?TIMEOUT).
 %    {ok, proc_lib:spawn_link(?MODULE, init, [{Filename, Profile}])}.
 
@@ -44,11 +42,11 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({kickoff_tileworkers, Filename, Profile}, _From, State) ->
-    ?LOG_INFO("~p kickoff for file: ~p, with profile: ~p", [?MODULE, Filename, Profile]),
+    lager:info("~p kickoff for file: ~p, with profile: ~p", [?MODULE, Filename, Profile]),
     WS = gdalnif2tiles:open_to(Filename, Profile),
-    ?LOG_INFO("opened"),
+    lager:info("opened"),
     RasterInfo = gdalnif2tiles:info(WS),
-    ?LOG_INFO("infoed"),
+    lager:info("infoed"),
     {JobInfo, Details} = world_profile:generate_base_tiles(Profile, RasterInfo),
     lists:foreach(fun(D) -> gdal2tile_worker_sup:kickoff_tileworker(JobInfo, D) end, Details),
     {reply, ok, State};
@@ -63,7 +61,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(Reason, State) ->
-    ?LOG_INFO("terminate, reason: ~p, froM state: ~p", [Reason, State]),
+    lager:info("terminate, reason: ~p, froM state: ~p", [Reason, State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

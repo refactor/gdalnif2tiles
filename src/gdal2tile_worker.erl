@@ -1,8 +1,6 @@
 -module(gdal2tile_worker).
 -behaviour(gen_statem).
 
--include_lib("kernel/include/logger.hrl").
-
 %% API.
 -export([start_link/2]).
 
@@ -40,26 +38,26 @@ init({JobInfo,TilePart}) ->
     {ok, create_base_tile, #state{job_info = JobInfo, tiled_parts = TilePart}, [{next_event, internal, by_init}]}.
 
 create_base_tile(internal, Msg, #state{job_info = JobInfo, tiled_parts = TilePart} = StateData) ->
-    ?LOG_DEBUG("from msg: ~p, job_info: ~p", [Msg, JobInfo]),
+    lager:debug("from msg: ~p, job_info: ~p", [Msg, JobInfo]),
     Tile = gdalnif2tiles:build_tile(TilePart),
     {next_state, store_base_tile, StateData#state{tile = Tile}, [{next_event, internal, by_create_basetile}]};
 ?HANDLE_COMMON.
 
 store_base_tile(internal, EventData, #state{job_info = #{output_dir := Dir}, tile = Tile}) ->
-    ?LOG_INFO("STORE basetile to ~p by ~p, with event: ~p, tile: ~p", [Dir, ?MODULE, EventData, Tile]),
+    lager:info("STORE basetile to ~p by ~p, with event: ~p, tile: ~p", [Dir, ?MODULE, EventData, Tile]),
     gdalnif2tiles:write_png(Tile, Dir),
     stop;
 ?HANDLE_COMMON.
 
 handle_common(EventType, Msg, StateData) ->
-    ?LOG_WARNING("unhandled event: ~p, msg: ~p, state: ~p", [EventType, Msg, StateData]),
+    lager:warning("unhandled event: ~p, msg: ~p, state: ~p", [EventType, Msg, StateData]),
     keep_state_and_data.
 
 handle_event(_EventType, _EventData, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
 terminate(Reason, StateName, _StateData) ->
-    ?LOG_INFO("terminate reason: ~p, from state: ~p", [Reason, StateName]),
+    lager:info("terminate reason: ~p, from state: ~p", [Reason, StateName]),
     ok.
 
 code_change(_OldVsn, StateName, StateData, _Extra) ->

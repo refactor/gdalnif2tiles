@@ -1,7 +1,5 @@
 -module(gdalnif2tiles).
 
--include_lib("kernel/include/logger.hrl").
-
 -export([info/1]).
 -export([band_info/2]).
 -export([get_pixel/3]).
@@ -76,14 +74,14 @@ open_to(Filename, #{profile := Profile}) ->
     if Warped ->
         case has_nodata(WDataset) of
             true ->
-                ?LOG_DEBUG("Nodata: found"),
+                lager:debug("Nodata: found"),
                 update_no_data_values(WDataset);
             false ->
-                ?LOG_WARNING("try update_alpha_value_for_non_alpha_inputs for: no NODATA"),
+                lager:warning("try update_alpha_value_for_non_alpha_inputs for: no NODATA"),
                 update_alpha_value_for_non_alpha_inputs(WDataset)
         end;
     true ->
-        ?LOG_INFO("s_srs == d_srs, no warped dataset, just copy a VRT dataset"),
+        lager:info("s_srs == d_srs, no warped dataset, just copy a VRT dataset"),
         create_vrt_copy(WDataset)
     end.
 
@@ -151,7 +149,7 @@ update_alpha_value_for_non_alpha_inputs(WDataset) ->
         NewTL = add_VRTRasterBand_to_string(Band, TL),
   %      ?LOG_DEBUG("~p", [NewTL]),
         CorrectedStr = binary:list_to_bin(tl(xmerl:export_simple([NewTL], xmerl_xml))),
-        ?LOG_DEBUG("write file: vtils.vrt"),
+        lager:debug("write file: vtils.vrt"),
         file:write_file("vtiles.vrt", CorrectedStr),
         correct_dataset(WDataset, CorrectedStr),
         WDataset;
