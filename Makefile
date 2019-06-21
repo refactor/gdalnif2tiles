@@ -29,7 +29,7 @@ EXTRA_CONFIG ?= config/extra.config
 SHELL=/bin/bash
 SHELL_OPTS = -s gdalnif2tiles_app -config ${CONFIG} -args_file config/vm.args
 
-all::
+shell::
 	@if ! [[ -a ${EXTRA_CONFIG} ]]; then echo "[]." > ${EXTRA_CONFIG}; fi
 
 include erlang.mk
