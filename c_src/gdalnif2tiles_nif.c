@@ -83,7 +83,7 @@ static void tiled_dataset_dtor(ErlNifEnv * __attribute__((unused)) env, void* ob
     }
 }
 
-typedef struct tiled_dataset_assemblypart {
+typedef struct raw_tiled_dataset {
     uint32_t tx;
     uint32_t ty;
     uint32_t tz;
@@ -98,22 +98,20 @@ typedef struct tiled_dataset_assemblypart {
     uint32_t tilebands;
     GDALDataType datatype;
     GDALDataType alphatype;
-    uint8_t* data;
-    uint8_t* alpha;
-} tiled_dataset_assemblypart;
+    size_t datasize;
+    uint8_t data[];
+} raw_tiled_dataset;
+
+static inline uint8_t* tda_alphaptr(const raw_tiled_dataset* tda) {
+    return (uint8_t*)((uintptr_t)tda->data + tda->datasize - tda->wxsize * tda->wysize * GDALGetDataTypeSizeBytes(tda->alphatype));
+}
+static inline uint8_t* tda_dataptr(const raw_tiled_dataset* tda) {
+    return (uint8_t*)tda->data;
+}
 
 static void tiled_dataset_parts_dtor(ErlNifEnv * __attribute__((unused)) env, void* obj) {
-    tiled_dataset_assemblypart *part = (tiled_dataset_assemblypart*)obj;
-    INFO_LOG("destroy tile_parts -> %p", obj);
-    if (part->data) {
-        DBG("free memory -> ", part->data);
-        VSIFree(part->data);
-        part->data = NULL;
-    }
-    if (part->alpha) {
-    //    CPLFree(part->alpha);
-        part->alpha = NULL;
-    }
+    raw_tiled_dataset *part = (raw_tiled_dataset*)obj;
+    INFO_LOG("destroy tile_parts -> %p, datasize: %u", obj, part->datasize);
 }
 
 nodata_list* extract_nodatavalues(const GDALDatasetH hDataset) {
@@ -599,9 +597,17 @@ ENIF(extract_base_tile) {
 
     const int tilebands = dataBandsCount + 1;
 
+    GDALRasterBandH hBand = GDALGetRasterBand(ds, 1);
+    GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
+    GDALDataType datatype = GDALGetRasterDataType(hBand);
+    GDALDataType alphatype = GDALGetRasterDataType(alphaband);
+    DBG("band1type=%s, alphatype=%s", GDALGetDataTypeName(datatype), GDALGetDataTypeName(alphatype));
+
     // make dstile GC
-    tiled_dataset_assemblypart *tda = enif_alloc_resource(assemblypartResType, sizeof(*tda));
-    *tda = (tiled_dataset_assemblypart) {
+    size_t alphasize = wxsize * wysize * GDALGetDataTypeSizeBytes(alphatype);
+    size_t datasize =  wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(datatype) + alphasize;
+    raw_tiled_dataset *tda = enif_alloc_resource(assemblypartResType, sizeof(*tda) + datasize);
+    *tda = (raw_tiled_dataset) {
         .tx = tx,
         .ty = ty,
         .tz = tz,
@@ -612,12 +618,13 @@ ENIF(extract_base_tile) {
         .tile_size = tile_size,
         .querysize = querysize,
         .dataBandsCount = dataBandsCount,
-        .tilebands = tilebands,
+        .tilebands      = tilebands,
         .transparent = true,
-        .datatype = GDT_Byte,
-        .alphatype = GDT_Byte
+        .datatype  = datatype,
+        .alphatype = alphatype,
+        .datasize = datasize
     };
-    ERL_NIF_TERM ret = enif_make_resource(env, tda);
+    ERL_NIF_TERM ret = enif_make_resource_binary(env, tda, tda, sizeof(*tda));
     enif_release_resource(tda);
 
     if (rxsize == 0 || rysize == 0 || wxsize == 0 || wysize == 0) {
@@ -625,39 +632,27 @@ ENIF(extract_base_tile) {
         return ret;
     }
 
-    GDALRasterBandH hBand = GDALGetRasterBand(ds, 1);
-    GDALRasterBandH alphaband = GDALGetMaskBand(hBand);
-    tda->datatype = GDALGetRasterDataType(hBand);
-    tda->alphatype = GDALGetRasterDataType(alphaband);
-    DBG("band1type=%s, alphatype=%s", GDALGetDataTypeName(tda->datatype), GDALGetDataTypeName(tda->alphatype));
-
-    tda->data = (uint8_t*) VSICalloc( wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(tda->datatype) +
-                wxsize * wysize * GDALGetDataTypeSizeBytes(tda->alphatype), 1);
-
-    tda->alpha = (uint8_t*) ((uintptr_t)tda->data + wxsize * wysize * dataBandsCount * GDALGetDataTypeSizeBytes(tda->datatype));
-    CHECK_RESULT_AND_FREE( GDALRasterIO(alphaband, GF_Read,
-                                        rx, ry, rxsize, rysize,
-                                        tda->alpha, wxsize, wysize,
-                                        tda->alphatype,
-                                        0,0),
-                           tda->data);   // because alpha is tail part of data
+    uint8_t* alpha = tda_alphaptr(tda);
+    CHECK_RESULT( GDALRasterIO(alphaband, GF_Read,
+                               rx, ry, rxsize, rysize,
+                               alpha, wxsize, wysize,
+                               tda->alphatype,
+                               0, 0) );
     uint32_t sum = 0;
-    for (uint32_t i = 0; i < wxsize * wysize; ++i) sum += tda->alpha[i]; // TODO: GDT_Type must be consided
+    for (uint32_t i = 0; i < wxsize * wysize; ++i) sum += alpha[i]; // TODO: GDT_Type must be consided
     if (sum == 0) {
         WARN("Detect totally transparent tile(tx=%u,ty=%u,tz=%u) and SHOULD skip its creation",tx,ty,tz);
-        VSIFree(tda->data); tda->data = NULL; tda->alpha = NULL;
         return ret;
     }
 
     int panBandMap[dataBandsCount];
     for (uint32_t i = 0; i < ARRLEN(panBandMap); ++i) panBandMap[i] = i + 1;
-    CHECK_RESULT_AND_FREE( GDALDatasetRasterIO(ds, GF_Read, 
-                                               rx, ry, rxsize, rysize,
-                                               tda->data, wxsize, wysize,
-                                               tda->datatype,
-                                               ARRLEN(panBandMap), panBandMap,
-                                               0, 0, 0),
-                           tda->data);
+    CHECK_RESULT( GDALDatasetRasterIO(ds, GF_Read, 
+                                      rx, ry, rxsize, rysize,
+                                      tda->data, wxsize, wysize,
+                                      tda->datatype,
+                                      ARRLEN(panBandMap), panBandMap,
+                                      0, 0, 0) );
 
     // if data:
     tda->transparent = false;
@@ -665,7 +660,7 @@ ENIF(extract_base_tile) {
 }
 
 ENIF(build_tile) {
-    const tiled_dataset_assemblypart *tda = NULL;
+    const raw_tiled_dataset *tda = NULL;
     if (!enif_get_resource(env, argv[0], assemblypartResType, (void**)&tda)) {
         WARN("fail to get assemblypart");
         return enif_make_badarg(env);
@@ -697,15 +692,17 @@ ENIF(build_tile) {
 
     if (tda->tile_size == tda->querysize) {
         // TODO: build a MEM dataset from tds->data directly
+        void* data = tda_dataptr(tda);
         CHECK_RESULT( GDALDatasetRasterIO(dstile, GF_Write,
                                           tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                                          tda->data, tda->wxsize, tda->wysize,
+                                          data, tda->wxsize, tda->wysize,
                                           tda->datatype,
                                           ARRLEN(panBandMap), panBandMap,
                                           0, 0, 0));
+        void* alpha = tda_alphaptr(tda);
         CHECK_RESULT( GDALDatasetRasterIO(dstile, GF_Write,
                                           tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                                          tda->alpha, tda->wxsize, tda->wysize,
+                                          alpha, tda->wxsize, tda->wysize,
                                           tda->alphatype,
                                           1, (int[]){ tda->tilebands },
                                           0, 0, 0) );
@@ -717,16 +714,18 @@ ENIF(build_tile) {
             return enif_raise_exception(env,
                     enif_make_tuple2(env, enif_make_atom(env, "dsquery_create_error"), reason));
         }
+        void* data = tda_dataptr(tda);
         CHECK_RESULT_AND_CLOSE( GDALDatasetRasterIO(dsquery, GF_Write,
                                                     tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                                                    tda->data, tda->wxsize, tda->wysize,
+                                                    data, tda->wxsize, tda->wysize,
                                                     tda->datatype,
                                                     ARRLEN(panBandMap), panBandMap,
                                                     0, 0, 0),
                                 dsquery);
+        void* alpha = tda_alphaptr(tda);
         CHECK_RESULT_AND_CLOSE( GDALDatasetRasterIO(dsquery, GF_Write,
                                                     tda->wx, tda->wy, tda->wxsize, tda->wysize,
-                                                    tda->alpha, tda->wxsize, tda->wysize,
+                                                    alpha, tda->wxsize, tda->wysize,
                                                     tda->alphatype,
                                                     1, (int[]){ tda->tilebands },
                                                     0, 0, 0),
