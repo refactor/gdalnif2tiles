@@ -13,7 +13,7 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
--define(TIMEOUT, 30000).
+-define(TIMEOUT, infinity).
 
 -record(state, {
           profile :: world_profile:profile(),

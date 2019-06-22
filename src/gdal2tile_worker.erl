@@ -44,7 +44,7 @@ create_base_tile(internal, Msg, #state{job_info = JobInfo, tiled_parts = TilePar
 ?HANDLE_COMMON.
 
 store_base_tile(internal, EventData, #state{job_info = #{output_dir := Dir}, tile = Tile}) ->
-    lager:info("STORE basetile to ~p by ~p, with event: ~p, tile: ~p", [Dir, ?MODULE, EventData, Tile]),
+    lager:info("STORE basetile to ~p by ~p, with event: ~p", [Dir, ?MODULE, EventData]),
     gdalnif2tiles:write_png(Tile, Dir),
     stop;
 ?HANDLE_COMMON.
